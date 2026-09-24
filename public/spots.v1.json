@@ -1,0 +1,31 @@
+{
+ "_meta": {
+  "source": "OpenStreetMap Overpass API (natural=bay, place=island/islet, natural=reef) inside the Mille Lacs bbox",
+  "fetched_utc": "2026-09-11",
+  "note": "Named features only; reefs are not mapped in OSM, so reef reads fall back to the nearest bay/island. Coordinates are the feature centroid.",
+  "usage": "tap readout: nearest feature within 4 km -> 'off <name>'; otherwise 'open water - <sector>'"
+ },
+ "features": [
+  { "name": "Agate Bay", "kind": "bay", "lat": 46.29495, "lon": -93.53608 },
+  { "name": "Bergstrom Bay", "kind": "bay", "lat": 46.36468, "lon": -93.61413 },
+  { "name": "Bird Island", "kind": "island", "lat": 46.39997, "lon": -93.84934 },
+  { "name": "Cove Bay", "kind": "bay", "lat": 46.11607, "lon": -93.61497 },
+  { "name": "Garrison Bay", "kind": "bay", "lat": 46.30913, "lon": -93.80386 },
+  { "name": "Grass Island", "kind": "island", "lat": 46.17088, "lon": -93.75205 },
+  { "name": "Hennepin Island", "kind": "islet", "lat": 46.1792, "lon": -93.53133 },
+  { "name": "Hunters Bay", "kind": "bay", "lat": 46.37385, "lon": -93.8722 },
+  { "name": "Isle Harbor", "kind": "bay", "lat": 46.14662, "lon": -93.47746 },
+  { "name": "Malkerson Island", "kind": "island", "lat": 46.40128, "lon": -93.86329 },
+  { "name": "Malmo Bay", "kind": "bay", "lat": 46.33245, "lon": -93.5333 },
+  { "name": "Mulbys Island", "kind": "island", "lat": 46.12423, "lon": -93.53048 },
+  { "name": "Saint Albans Bay", "kind": "bay", "lat": 46.26301, "lon": -93.81831 },
+  { "name": "Shah-bush-kung Bay", "kind": "bay", "lat": 46.1969, "lon": -93.75553 },
+  { "name": "Spirit Island", "kind": "islet", "lat": 46.15173, "lon": -93.64465 },
+  { "name": "Sunset Bay", "kind": "bay", "lat": 46.21107, "lon": -93.50885 },
+  { "name": "Twin Bays", "kind": "bay", "lat": 46.17301, "lon": -93.48329 },
+  { "name": "Upper and Lower Twin Island", "kind": "islet", "lat": 46.14439, "lon": -93.53232 },
+  { "name": "Vineland Bay", "kind": "bay", "lat": 46.16385, "lon": -93.74775 },
+  { "name": "Wahkon Bay", "kind": "bay", "lat": 46.12718, "lon": -93.53746 },
+  { "name": "Wigwam Bay", "kind": "bay", "lat": 46.2119, "lon": -93.77664 }
+ ]
+}
