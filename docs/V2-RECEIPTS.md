@@ -173,3 +173,25 @@ NOPKG: unpkg refs in client = 0
 
 **P2 status: COMPLETE — viewer + QA green locally.**
 
+### Orchestrator gate — P2 PASS (2026-09-24T18:40Z, independent verification)
+
+- **Scope**: commits `35e4fc0` + `460e470` + `2b26dd4` touch allowed files only; zero commits on
+  `src/wave-math.js`, `src/tables.js`, `tests/**`; `git status` clean; suites re-run on the final
+  tree by the orchestrator: `tests=5 pass=5 fail=0`.
+- **Independent browser probe** (orchestrator-authored `/tmp/p2_probe*.py`, mobile 390×844, local
+  server, fresh profile): zero console errors; **zero Open-Meteo requests** (compute path really
+  gone); zero `unpkg` requests; Leaflet served from `public/vendor/leaflet/`; `frames.json` +
+  `wind.json` fetched with `?cb=`; `f000.bin` on load, then `f006/07/08` fetched on scrub (prefetch
+  live); verdict `Peak: 4.4 ft · NW Basin` + range + comfort tier render; `#data-age` =
+  `updated just now (HRRR)`; map tap → spot card (`Depth 35.0 ft · Hs 2.5 ft · Hmax 4.1 ft ·
+  H/L 0.046`); 48h→15d toggle flips `aria-pressed`; tape drag moves `1 PM → 8 PM` across 7 hourly
+  frames (first attempt failed — bad drag coordinates on the wide 15d tape, re-probed correctly).
+- **Live**: Pages build `36040712971` success; live `index.html` serves the new client
+  (`h-48h`/`h-15d`/vendored Leaflet present, 0 `unpkg`); cache-busted live `frames.json` = 146
+  frames, `generated_at 18:08:23Z`.
+- **Accepted as reported**: scrub_bench 33/33 + pwa_check 11/0 (raw logs preserved), session budget
+  369.9 KB ≈ 4 bins + frames.json + wind.json (arithmetic consistent), and the leaf's
+  client-vs-worker cross-check (worst |Δ| = 0.0 H/L; 0.0127 ft Hs = 0.5 LSB quantization).
+- **Open item**: no scheduled (cron) worker run observed yet — GitHub activates new schedules with
+  up to ~1 h delay; verify later.
+
