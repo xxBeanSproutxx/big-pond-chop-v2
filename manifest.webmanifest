@@ -1,6 +1,6 @@
 {
-  "name": "Big Pond Chop",
-  "short_name": "BigPondChop",
+  "name": "Big Pond Chop v2",
+  "short_name": "Big Pond Chop v2",
   "description": "Live wave and wind forecast for Mille Lacs Lake.",
   "start_url": "./",
   "scope": "./",

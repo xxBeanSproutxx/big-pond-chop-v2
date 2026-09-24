@@ -44,6 +44,10 @@ RESULTS = []
 PRECACHE = [
     "./", "./index.html",
     "./src/tables.js", "./src/wave-math.js", "./src/wind.js", "./src/ui.js", "./src/render.js",
+    "./public/vendor/leaflet/leaflet.js", "./public/vendor/leaflet/leaflet.css",
+    "./public/vendor/leaflet/images/layers.png", "./public/vendor/leaflet/images/layers-2x.png",
+    "./public/vendor/leaflet/images/marker-icon.png", "./public/vendor/leaflet/images/marker-icon-2x.png",
+    "./public/vendor/leaflet/images/marker-shadow.png",
     "./public/meta.v1.json", "./public/mask.v1.json", "./public/spots.v1.json",
     "./public/warp.v1.json", "./public/tables.v1.bin",
     "./public/favicon.svg", "./public/icon-192.png", "./public/icon-512.png",
@@ -67,8 +71,8 @@ WIND_DOWN_PRED = ("() => { const m = document.getElementById('map');"
 READY_PRED = ("() => (%s)() || (%s)()" % (BOOT_PRED, WIND_DOWN_PRED))
 
 MANIFEST = {
-    "name": "Big Pond Chop",
-    "short_name": "BigPondChop",
+    "name": "Big Pond Chop v2",
+    "short_name": "Big Pond Chop v2",
     "description": "Live wave and wind forecast for Mille Lacs Lake.",
     "start_url": "./",
     "scope": "./",
@@ -383,8 +387,8 @@ def check_deploy_markers(base):
     cb = int(time.time())
     mcode, mheaders, mbody = http_get(urljoin(base, "manifest.webmanifest?cb=%d" % cb))
     scode, _, sbody = http_get(urljoin(base, "sw.js?cb=%d" % cb))
-    man_marker = b"Big Pond Chop" in mbody
-    sw_marker = b"bpc-cache-v1" in sbody
+    man_marker = b"Big Pond Chop v2" in mbody
+    sw_marker = b"bpc-cache-v2" in sbody
     record(12, "deploy markers",
            mcode == 200 and scode == 200 and man_marker and sw_marker,
            "manifest HTTP %d ctype=%s marker=%s; sw HTTP %d marker=%s" % (
