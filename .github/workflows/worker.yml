@@ -1,0 +1,31 @@
+name: worker
+
+on:
+  schedule:
+    - cron: '15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: bpc-worker
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compute frames
+        run: node worker/compute.mjs
+      - name: Commit data
+        run: |
+          git config user.name "bpc-worker" && git config user.email "bpc-worker@users.noreply.github.com"
+          git pull --rebase origin main
+          git add data/
+          if ! git diff --cached --quiet; then git commit -m "data: refresh $(date -u +%Y-%m-%dT%H:%MZ)"; git push; fi
