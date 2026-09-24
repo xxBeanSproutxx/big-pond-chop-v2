@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Big Pond Chop | Mille Lacs Lake Wave Forecast</title>
+<meta property="og:title" content="Big Pond Chop | Mille Lacs Lake Wave Forecast" />
+<meta property="og:description" content="Live depth-aware wave heights, peak rollers, and hourly forecast loop for Mille Lacs Lake." />
+<meta property="og:image" content="https://xxbeansproutxx.github.io/big-pond-chop/og-preview.png" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/svg+xml" href="public/favicon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BigPondChop">
+<link rel="apple-touch-icon" href="public/icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { color-scheme: dark; --header-h: calc(72px + env(safe-area-inset-top, 0px)); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; flex-direction: column; background: #0d1b2a; color: #e8f0f7;
+         font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  /* Fixed header: the map below must never move when verdict text changes.
+     Three stacked text rows sit in a column beside the 48 px refresh button:
+     row 1 = range + tier chip, row 2 = peak line at the column's full width so the
+     location label never truncates on a 360 px phone, row 3 = wind + H/L. */
+  /* Stage 6B: the header floats over the map (fixed, z-index 1001 > Leaflet's
+     1000) as a frosted glass band. #map extends under it; fitLake() reserves the
+     live header height + 12 px so the lake edge stays clear of the band.
+     Stage 6B.2: the band is 72 px of CONTENT (it grows into the notch inset
+     instead of clipping) and the top padding keeps row 1 off the bezel. */
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
+           padding: max(6px, env(safe-area-inset-top, 0px)) 10px 4px;
+           display: flex; align-items: center;
+           gap: 8px; height: var(--header-h); min-height: var(--header-h);
+           max-height: var(--header-h);
+           overflow: hidden; background: rgba(15,23,42,.85);
+           -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+           border-bottom: 1px solid rgba(255,255,255,.1); color: #f8fafc;
+           font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
+  @supports not (backdrop-filter: blur(1px)) { header { background: #0f172a; } }
+  /* 6B.2: the map now starts at y=0 (the header is fixed), so Leaflet's own top
+     controls would sit UNDER the band (measured y=10 vs the pre-6B y=82).
+     Offset the whole top strip below the header + 10 px. */
+  .leaflet-top { top: calc(var(--header-h) + 10px); }
+  /* 6.2: the zoom stack is docked BOTTOM-RIGHT: with the top-left corner freed, the
+     horizon toggle owns it and balances #wind-badge on the right. Leaflet's corner
+     containers are children of #map (position: relative) whose bottom edge IS the deck's
+     top, so these offsets are MAP-relative: the 9 px attribution sits at bottom 4 px
+     (~14 px tall) and the zoom stack starts 20 px up — flush above it, never on it.
+     (The old .leaflet-bottom rule's "deck-h + 6px" was the viewport-relative form of
+     this same mistake, fixed in 6.1; the control layer never needs to know the deck.) */
+  .leaflet-top.leaflet-left { top: auto; bottom: 20px; left: auto; right: 6px; }
+  .leaflet-top.leaflet-left .leaflet-control { margin: 0; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px;
+              position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .head-text { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
+               align-content: center; align-items: baseline; gap: 2px 8px; }
+  /* 6B.2: the 52 px reservation for the ? pill lives on the WIND ROW ONLY — on the
+     whole column it squeezed row 1 until the tier chip wrapped, which made
+     .head-text 76 px tall inside a 64 px content box and clipped row 1. */
+  #verdict { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; }
+  #verdict-range { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* Peak and wind get a row each: sharing a row clipped the location at 360 px. */
+  #subrow { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: baseline;
+            column-gap: 8px; min-width: 0; }
+  #verdict-peak { flex: 1 1 100%; min-width: 0; font-size: 13px; color: #ffd166;
+                  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+                  text-overflow: ellipsis; }
+  #secondary { flex: 1 1 100%; display: flex; flex-direction: row; align-items: baseline;
+               gap: 8px; font-size: 11px; color: #9fc3dd; font-variant-numeric: tabular-nums;
+               white-space: nowrap; }
+  /* 6.2: two-badge marine wind row. No "Wind:" prefix; each badge carries its own unit
+     — "[17 mph] · [24 mph Gust]". Numerals 13/700 white tabular; units 10/500; the lake
+     badge is tinted by WIND_HEAT at .55 alpha (white ink on every tier, by measurement)
+     and the gust badge keeps the neutral fill. Badges are 2px 6px. */
+  #three { flex: 1 1 auto; min-width: 0; align-self: center; display: flex;
+           align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
+           /* 6.2: the ? micro-badge is gone, so the 32 px reservation it needed
+              (20 px badge + 8 px gap + 4 px ::after overhang) is gone with it — one
+              4 px rhythm between the two badges and the dot. The header's own 8 px
+              gap separates the row from #refresh. */
+           margin-right: 0; }
+  #three .pill { display: inline-flex; align-items: baseline; gap: 3px; flex: 0 0 auto;
+                 border-radius: 999px; padding: 2px 6px; line-height: 1.4; }
+  #pill-gust { background: rgba(148,163,184,.18);
+               border: 1px solid rgba(148,163,184,.35); }
+  #pill-lake { background: var(--tint, rgba(148,163,184,.18));
+               border: 1px solid var(--tint-bd, rgba(148,163,184,.35)); }
+  #lake, #gust { font-size: 13px; font-weight: 700; color: #f8fafc;
+                 font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #gust-u { font-size: 10px; font-weight: 500; color: #cbd5e1;
+            font-variant-numeric: tabular-nums; line-height: 1.2; }
+  /* 6.2: the unit sits inside each badge. #mph is the LAKE badge's unit, i.e. on the
+     .55-alpha tier tint, where #cbd5e1 measured 3.58:1 (amber tier) — below the 4.5:1
+     gate — so it is white like its numeral (white clears every reachable tier: teal 7.24,
+     green 5.68, amber 5.08, orange 6.25, crimson 7.72). The gust badge's unit keeps
+     #cbd5e1: 8.64:1 on the neutral rgba(148,163,184,.18) fill. */
+  .unit { font-size: 10px; font-weight: 500; color: #cbd5e1;
+          font-variant-numeric: tabular-nums; line-height: 1.2; }
+  #pill-lake .unit { color: #f8fafc; }
+  #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
+  /* 6.2: #help and #help-pop are gone (with their listeners) — the badges are
+     self-labelling, so the row needs no explainer control. */
+
+  #comfort-chip { flex: 0 0 auto; font-size: 11px; font-weight: 700; border-radius: 3px;
+                  padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
+  .tier-green { background: #15803d; color: #fff; }
+  .tier-yellow { background: #facc15; color: #0d1b2a; }
+  .tier-amber { background: #ea580c; color: #fff; }
+  .tier-red { background: #dc2626; color: #fff; }
+  @media (max-width: 400px) {
+    #verdict-range { font-size: 14px; }
+    #comfort-chip { font-size: 10px; padding: 2px 5px; }
+    #secondary { font-size: 10px; gap: 6px; }
+    #verdict-peak { font-size: 12px; }
+  }
+  /* 6B.3: marine-glass refresh instead of the old #1d4e6f blue block — same fill and
+     hairline as the #help badge, so the two controls read as one family. Icon contrast
+     on the composite (#cbd5e1 over rgba(15,23,42,.85)) measures 8.1:1. */
+  #refresh { background: rgba(255,255,255,.05); color: #cbd5e1;
+             border: 1px solid rgba(255,255,255,.15); border-radius: 10px;
+             width: 48px; min-width: 48px; min-height: 48px; padding: 0; display: inline-flex;
+             align-items: center; justify-content: center; margin-left: auto;
+             touch-action: manipulation; }
+  #refresh .icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+                   stroke-linejoin: round; display: block; }
+  #map { flex: 1 1 auto; min-height: 0; height: auto; overflow: hidden; background: #14283b; position: relative; }
+  /* On-map wind badge, docked top-right (the horizon toggle now owns the top-left corner
+     and the zoom stack + attribution live bottom-right, so nothing shares this corner). */
+  #wind-badge { position: absolute; top: calc(var(--header-h) + 12px); right: 12px; z-index: 500; display: flex;
+                align-items: center; gap: 6px; height: 32px; border-radius: 16px;
+                background: rgba(16,38,58,.85); padding-right: 12px; }
+  #wind-badge-disc { width: 32px; height: 32px; display: flex; align-items: center;
+                     justify-content: center; flex: 0 0 32px; }
+  #wind-badge-arrow { display: block; transform-origin: 50% 50%; }
+  #wind-badge-text { font-size: 12px; color: #e8f0f7; font-variant-numeric: tabular-nums;
+                     white-space: nowrap; }
+  /* Loading skeleton (covers the map until the first painted frame). */
+  #boot { position: absolute; inset: 0; z-index: 700; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 10px; padding-top: 72px;
+          background: rgba(13,27,42,.92); color: #e8f0f7; font-size: 13px; }
+  #boot.hidden { display: none; }
+  #boot-track { width: min(240px, 60%); height: 6px; border-radius: 3px;
+                background: #1d4e6f; overflow: hidden; }
+  #boot-bar { width: 0; height: 100%; background: #ffd166; transition: width .15s linear; }
+  #boot.indeterminate #boot-bar { width: 40%; animation: boot-slide 1.1s ease-in-out infinite; }
+  @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+  body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
+  /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
+  :root { --deck-h: 62px; }
+  body { height: 100vh; height: 100dvh; }
+  #deck {
+    flex: 0 0 auto;
+    height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
+    padding: 0 8px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: #0f172a; overflow: visible;
+    position: relative; z-index: 1100; /* the amber pill floats above the deck edge (Windy) */
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+  }
+  .deck-row  { overflow: hidden; }
+  .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
+  .deck-track{ height: 62px; display: flex; align-items: stretch; }
+  /* 6.2: the horizon toggle OWNS the top-left map corner now that the zoom stack is
+     docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
+     zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
+  #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 12px; z-index: 1000; display: flex; gap: 4px; }
+  #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
+                    color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
+                    font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
+  #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
+  /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 62px; overflow: hidden;
+              border-radius: 4px; background: #262930; }
+  /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
+  #track-tape { position: absolute; left: 0; top: 0; height: 100%;
+                transition: transform .32s linear; will-change: transform; }
+  #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
+                    box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
+  /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
+     viewing window. It floats ABOVE the timeline edge (Windy reference) so it never
+     covers a day header; the stem dips into the bar. The element never moves. */
+  #time-pill      { position: absolute; top: -20px; left: 50%; width: 68px; height: 20px; line-height: 20px;
+                    border-radius: 10px; background: #d69e0b; color: #ffffff;
+                    font: 700 12px/20px system-ui, -apple-system, sans-serif;
+                    font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap;
+                    pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,.45);
+                    transform: translateX(-50%); }
+  #time-pill::after { content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px;
+                      border-left: 5px solid transparent; border-right: 5px solid transparent;
+                      border-top: 9px solid #d69e0b; }
+  /* Stage 5F timeline: solid segmented day blocks + 3 h sub-row. */
+  #track-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #track-days, #track-ticks { position: absolute; inset: 0; pointer-events: none; }
+  #track-days { overflow: hidden; border-radius: 4px; } /* rounded day ends without clipping the pill */
+  .day-block { position: absolute; top: 0; bottom: 0; background: #23272e; overflow: hidden; }
+  .day-block.alt { background: #1b1d22; }
+  .day-block + .day-block { border-left: 1px solid #4a5568; }
+  .day-head { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+              font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
+  .day-sub { position: absolute; top: 20px; transform: translateX(-50%);
+             font: 11px/1 system-ui, -apple-system, sans-serif; color: #94a3b8; white-space: nowrap;
+             font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
+  .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
+  /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
+     line-box vertically centres the 12px type in the 40-60 px band. */
+  .day-wind { position: absolute; top: 40px; transform: translateX(-50%);
+              font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
+              text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              height: 20px; line-height: 20px; width: 20px; text-align: center; }
+  /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
+     painted behind the numbers (DOM order). */
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
+              border-radius: 3px; }
+  /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
+     #map whose bottom edge IS the deck's top) and trimmed to 134px so it ends at
+     x = 142 on a 360px viewport — clearing the amber reticle's left edge (x = 146)
+     with zero horizontal collision. */
+  #legend-card { position: absolute; left: 8px; bottom: 4px !important; margin: 0;
+                 z-index: 500; pointer-events: none;
+                 background: rgba(16,38,58,.85); border-radius: 8px; padding: 5px 6px; }
+  #legend-card-bar { width: 122px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
+  #legend-card-ticks { width: 122px; margin-top: 2px; display: flex; justify-content: space-between;
+                       font-size: 8px; line-height: 1; color: #9fc3dd; }
+  #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
+  /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
+     tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
+  #play { position: absolute; left: 0; top: 0; z-index: 10;
+          width: 48px; height: 48px; display: inline-flex; align-items: center;
+          justify-content: center;
+          background: linear-gradient(90deg, rgba(16,38,58,.85), rgba(16,38,58,0));
+          color: #e8f0f7;
+          border: 0; border-radius: 0; font-size: 12px; padding: 0;
+          touch-action: manipulation; }
+  #play .icon { fill: currentColor; display: block; width: 20px; height: 20px; }
+  #play .icon-pause { display: none; }
+  #play[data-state="pause"] .icon-play { display: none; }
+  #play[data-state="pause"] .icon-pause { display: block; }
+  #readout { font-size: 12px; color: #cfe3f2; min-height: 1.2em; font-variant-numeric: tabular-nums; }
+  #note { display: none; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+          z-index: 600; background: #5a1f1f; color: #ffd7d7; padding: 8px 12px; border-radius: 8px;
+          font-size: 13px; align-items: center; gap: 10px; }
+  #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
+                padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
+  #card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
+          background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
+          border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
+  #card .card-line { margin: 1px 0; }
+  #card .card-line b { display: inline-block; min-width: 3.6em; }
+  #card-close { position: absolute; right: 2px; top: 2px; width: 48px; height: 48px;
+                border: 0; background: transparent; color: #0d1b2a; font-size: 20px;
+                line-height: 1; cursor: pointer; touch-action: manipulation; }
+  body.reduced-motion * { transition: none !important; animation: none !important; }
+  /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
+     itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
+  .leaflet-tile-pane { filter: grayscale(.9) saturate(.35) brightness(1.04) contrast(.94); }
+  /* Stage 5J / 6B.3 / 6.1: both bottom elements sit FLUSH on the deck (4 px against
+     #map, whose bottom edge IS the deck's top). The corner is positioned against #map,
+     not the viewport, which is why "deck-h + 4px" previously resolved to 66 px. */
+  .leaflet-bottom { bottom: calc(var(--deck-h) + 6px); }
+  .leaflet-bottom.leaflet-right { bottom: 4px !important; right: 6px; margin: 0; }
+  /* 6B.4 / 6.1: no box, no shadow, no blur — crisp muted slate that stays sharp on the
+     light desaturated tiles. #64748b at 9px/500 measures ~4.0:1 there (the previous
+     #94a3b8 needed the text-shadow and measured ~2.6:1 without it). */
+  .leaflet-control-attribution { background: none !important; box-shadow: none !important;
+                                 color: #64748b; font-size: 9px; font-weight: 500;
+                                 text-shadow: none; }
+  .leaflet-control-attribution a { color: #64748b; }
+  #field { display: none; }
+</style>
+</head>
+<body data-hour="" data-hs-ft="" data-hmax-ft="" data-wind-mph="" data-bearing-grid="" data-teff-h="">
+  <header>
+    <h1>Mille Lacs wind waves</h1>
+    <div class="head-text">
+      <div id="verdict">
+        <div id="verdict-range">—</div>
+      </div>
+      <span id="comfort-chip" class="tier-green">Fishable · Light Chop</span>
+      <div id="subrow">
+        <div id="verdict-peak"></div>
+        <div id="secondary">
+          <div id="three" role="group" aria-label="Wind">
+            <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
+            <span id="dot" aria-hidden="true">·</span>
+            <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button id="refresh" type="button" aria-label="Refresh wind data" title="Refresh wind data">
+      <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
+        <polyline points="20,5 20,11 14,11"></polyline>
+      </svg>
+    </button>
+  </header>
+  <div id="map">
+    <div id="horizon" role="group" aria-label="Forecast horizon">
+      <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
+      <button id="h-7d"  type="button" data-horizon="7d"  aria-pressed="false">7 day</button>
+    </div>
+    <div id="card" hidden>
+      <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
+      <div class="card-line" data-field="spot"><b>Spot:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="coords"><b>Coords:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="depth"><b>Depth:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="hs"><b>Hs:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="hmax"><b>Hmax:</b> <span class="v">—</span></div>
+      <div class="card-line" data-field="hl"><b>H/L:</b> <span class="v">—</span></div>
+    </div>
+    <div id="wind-badge" role="img"
+         aria-label="Wind from NW at 315 degrees, blowing toward SE at 135 degrees">
+      <span id="wind-badge-disc">
+        <svg id="wind-badge-arrow" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+             fill="#ffd166"><path d="M12 2 L17.5 20.5 L12 16.2 L6.5 20.5 Z"></path></svg>
+      </span>
+      <span id="wind-badge-text">From NW 315°</span>
+    </div>
+    <div id="legend-card" aria-hidden="true">
+      <div id="legend-card-bar"></div>
+      <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+    </div>
+    <div id="note"><span id="note-msg">wind unavailable — retry</span><button id="note-retry" type="button">Retry</button></div>
+    <div id="boot">
+      <div id="boot-text">Loading wave map…</div>
+      <div id="boot-track"><div id="boot-bar"></div></div>
+      <div id="readout">tap the lake for a local readout</div>
+    </div>
+  </div>
+  <footer id="deck">
+    <div class="deck-row deck-track" id="track"
+         role="slider" tabindex="0" aria-label="Time scrubber"
+         aria-valuemin="0" aria-valuemax="95" aria-valuenow="0" aria-valuetext="—">
+      <div id="timeline">
+        <div id="track-tape">
+          <div id="track-days"></div>
+          <div id="track-ticks"></div>
+          <div id="now-tick" hidden></div>
+        </div>
+        <div id="track-label">—</div>
+      </div>
+      <div id="time-pill">—</div>
+      <button id="play" type="button" aria-pressed="false" aria-label="Play radar loop">
+        <svg class="icon icon-play" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><polygon points="6,4 20,12 6,20"></polygon></svg>
+        <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+      </button>
+    </div>
+  </footer>
+  <canvas id="field"></canvas>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  (function () {
+    var cache = {};
+    function resolve(from, req) {
+      if (req.charAt(0) !== '.') return req + '.js';
+      var base = from.split('/'); base.pop();
+      var parts = req.split('/');
+      for (var k = 0; k < parts.length; k++) {
+        var p = parts[k];
+        if (p === '.' || p === '') continue;
+        if (p === '..') base.pop(); else base.push(p);
+      }
+      var out = base.join('/');
+      return out.slice(-3) === '.js' ? out : out + '.js';
+    }
+    async function load(path) {
+      if (cache[path]) return cache[path].exports;
+      var res = await fetch(path);
+      if (!res.ok) throw new Error('load ' + path + ': HTTP ' + res.status);
+      var src = await res.text();
+      var mod = { exports: {} };
+      cache[path] = mod;
+      var require = function (req) {
+        var p = resolve(path, req);
+        if (!cache[p]) throw new Error('missing module ' + p);
+        return cache[p].exports;
+      };
+      new Function('module', 'exports', 'require', src)(mod, mod.exports, require);
+      return mod.exports;
+    }
+    (async function () {
+      try {
+        var tables = await load('src/tables.js');
+        var wave = await load('src/wave-math.js');
+        var wind = await load('src/wind.js');
+        var ui = await load('src/ui.js');
+        var render = await load('src/render.js');
+        await render.mount({ tables: tables, wave: wave, wind: wind, render: render, ui: ui });
+      } catch (err) {
+        console.error(err);
+        var m = document.getElementById('note-msg');
+        if (m) m.textContent = 'wind unavailable — retry';
+        var n = document.getElementById('note');
+        if (n) n.style.display = 'flex';
+      }
+    })();
+  })();
+  </script>
+  <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function () {});
+    });
+  }
+  </script>
+</body>
+</html>

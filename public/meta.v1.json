@@ -1,0 +1,104 @@
+{
+ "version": "v1",
+ "created_utc": "2026-09-14T13:46:09Z",
+ "bathy_grid": {
+  "rows": 292,
+  "cols": 285,
+  "cell_m": 100
+ },
+ "fetch_grid": {
+  "rows": 98,
+  "cols": 95,
+  "cell_m": 300,
+  "directions_deg": [
+   0.0,
+   22.5,
+   45.0,
+   67.5,
+   90.0,
+   112.5,
+   135.0,
+   157.5,
+   180.0,
+   202.5,
+   225.0,
+   247.5,
+   270.0,
+   292.5,
+   315.0,
+   337.5
+  ]
+ },
+ "utm": {
+  "epsg": "EPSG:32615",
+  "zone": "15N",
+  "origin_e": 436230.0,
+  "origin_n": 5135360.0
+ },
+ "wgs84_corners": {
+  "nw": [
+   -93.829085,
+   46.368809
+  ],
+  "ne": [
+   -93.458568,
+   46.370895
+  ],
+  "se": [
+   -93.456384,
+   46.108105
+  ],
+  "sw": [
+   -93.825137,
+   46.106037
+  ]
+ },
+ "gamma_deg": -0.474,
+ "blob": {
+  "file": "tables.v1.bin",
+  "bytes": 613320,
+  "sha256": "34e5900e2d633859504edc895a762d7570928ebc0b18be0fcb0c966891a1acc5",
+  "offsets": {
+   "depth": 0,
+   "fetchEff": 166440,
+   "pathEff": 464360
+  },
+  "order": "[dir][row][col]"
+ },
+ "units": {
+  "depth": "ft x 4 (uint16, 0.25 ft); 65535 = land",
+  "fetchEff": "decametres (10 m), uint16; 65535 = invalid",
+  "pathEff": "ft, uint8; 0 = invalid"
+ },
+ "datum": "depths are feet below chart datum; fetch is distance to land",
+ "clamped": {
+  "dem_cells_above_42ft": 73421,
+  "max_ft": 42.0
+ },
+ "blob_bbox": {
+  "x_px": [
+   127,
+   981
+  ],
+  "y_px": [
+   158,
+   3630
+  ],
+  "cells": 47107,
+  "median_ft": 86.8
+ },
+ "ranges": {
+  "depth_ft": [
+   0.0,
+   40.0
+  ],
+  "fetchEff_decam": [
+   2,
+   2335
+  ],
+  "pathEff_ft": [
+   0,
+   34
+  ]
+ }
+}

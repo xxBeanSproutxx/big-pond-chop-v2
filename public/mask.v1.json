@@ -1,0 +1,88 @@
+{
+ "version": "6.3",
+ "generated_utc": "2026-09-14T13:46:07Z",
+ "source_dem": "ml_dem_utm.tif",
+ "connectivity": 4,
+ "grid": {
+  "rows": 292,
+  "cols": 285,
+  "cell_m": 100
+ },
+ "components": 6,
+ "kept": {
+  "id": 2,
+  "cells": 52738,
+  "area_km2": 527.38,
+  "centroid_lat": 46.2424,
+  "centroid_lon": -93.6466,
+  "depth_ft": {
+   "min": 0.0,
+   "median": 30.7,
+   "max": 40.0
+  }
+ },
+ "dropped": [
+  {
+   "id": 4,
+   "cells": 345,
+   "area_km2": 3.45,
+   "centroid_lat": 46.3351,
+   "centroid_lon": -93.8053,
+   "depth_ft": {
+    "min": 0.0,
+    "median": 6.8,
+    "max": 42.0
+   }
+  },
+  {
+   "id": 5,
+   "cells": 322,
+   "area_km2": 3.22,
+   "centroid_lat": 46.2058,
+   "centroid_lon": -93.8129,
+   "depth_ft": {
+    "min": 0.0,
+    "median": 0.2,
+    "max": 42.0
+   }
+  },
+  {
+   "id": 3,
+   "cells": 317,
+   "area_km2": 3.17,
+   "centroid_lat": 46.356,
+   "centroid_lon": -93.7723,
+   "depth_ft": {
+    "min": 0.0,
+    "median": 1.9,
+    "max": 42.0
+   }
+  },
+  {
+   "id": 6,
+   "cells": 169,
+   "area_km2": 1.69,
+   "centroid_lat": 46.111,
+   "centroid_lon": -93.7239,
+   "depth_ft": {
+    "min": 0.0,
+    "median": 2.2,
+    "max": 12.7
+   }
+  },
+  {
+   "id": 1,
+   "cells": 104,
+   "area_km2": 1.04,
+   "centroid_lat": 46.3666,
+   "centroid_lon": -93.8067,
+   "depth_ft": {
+    "min": 0.0,
+    "median": 3.8,
+    "max": 5.7
+   }
+  }
+ ],
+ "dropped_cells_total": 1257,
+ "keep_min_cells_guard": 50000
+}
