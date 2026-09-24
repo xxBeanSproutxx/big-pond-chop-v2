@@ -324,3 +324,20 @@ DEVIATIONS: pwa_check.py edited beyond a bare live flag — live mode now runs S
    the last successful dispatch (`generated_at 2026-09-24T18:08:23Z`). Quickstart verification
    covered the serve / `node --test` (6/6) / QA commands; the `node worker/compute.mjs` dry-run
    line is documented but intentionally not executed here.
+
+### Orchestrator gate — P4 PASS + v2.0.0 SHIP (2026-09-24T18:50Z, independent verification)
+
+- **Release**: annotated tag `v2.0.0` + GitHub release published (18:39Z) on `09f44ab`; README
+  rewritten (quickstart verified); 3 live screenshots in `docs/shots/` (476 KB).
+- **Leaf evidence accepted**: fresh-clone smoke ok (map + strip, 1 frame, 0 console errors, tap →
+  spot card); LIVE pwa_check 13 ok / 0 FAIL (installability clean, SW ok, offline ok, data fetch ok).
+- **Orchestrator re-ran `pwa_check.py` locally on the final tree: 11 ok / 0 FAIL** (the live-mode
+  edit did not disturb the local path).
+- **Orchestrator LIVE probe** (own script, GitHub Pages, fresh profile): strip = 15 cells; verdict
+  `Peak: 4.4 ft · NW Basin`; data-age `updated just now (HRRR)`; drag `1 PM → 6 PM`; bins
+  `f000/f004–006` fetched on demand; `frames.json` fetched; **SW controlling**; zero console errors.
+- **Accepted deviation**: pwa_check live mode extended beyond a bare flag (runs checks 7/8/10 + new
+  13/14) — justified: the old live mode skipped SW/offline/browser-device stages; local default
+  re-run unchanged.
+- **Open item at gate time**: first scheduled (cron) worker run not yet observed — GitHub activates
+  new schedules with up to ~1 h delay; orchestrator watching until the first scheduled success.
