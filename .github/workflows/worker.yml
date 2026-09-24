@@ -26,6 +26,9 @@ jobs:
       - name: Commit data
         run: |
           git config user.name "bpc-worker" && git config user.email "bpc-worker@users.noreply.github.com"
-          git pull --rebase origin main
           git add data/
-          if ! git diff --cached --quiet; then git commit -m "data: refresh $(date -u +%Y-%m-%dT%H:%MZ)"; git push; fi
+          if ! git diff --cached --quiet; then
+            git commit -m "data: refresh $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase origin main
+            git push
+          fi
