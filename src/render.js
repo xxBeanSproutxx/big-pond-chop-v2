@@ -681,13 +681,17 @@ async function mount(deps) {
   function cellSteepness(e, cell) {
     const depthU = tables.depth[cell];
     const dLocalFt = depthU === LAND_U16 ? 0 : depthU * 0.25;
-    const F = waveMath.blendFetch(tables, coarseIndexFor(cell), e.bearingGrid);
-    const tauH = (F.F_m / M_PER_MI) / CG_MPH;
-    const q = e.utcMs - tauH * 3600000;
-    const si = sampleWindIndex(windTimesMs, q);
+    const ci = coarseIndexFor(cell);
+    // τ picks the arriving wind entry from the FRAME direction (delay-math); the field
+    // itself is then blended at the SAMPLED entry's own direction — exactly how
+    // computeDelayedField buckets that cell into an unchanged v1 computeField call.
+    const Ftau = waveMath.blendFetch(tables, ci, e.bearingGrid);
+    const tauH = (Ftau.F_m / M_PER_MI) / CG_MPH;
+    const si = sampleWindIndex(windTimesMs, e.utcMs - tauH * 3600000);
     const w = si >= 0 ? windSeries[si] : null;
     const speedMph = w ? w.speedMph : 0;
     const tEffH = w ? w.tEffH : 0;
+    const F = w ? waveMath.blendFetch(tables, ci, w.bearingGrid) : Ftau;
     const core = waveMath.waveCore(F.F_m, F.d_path_ft, dLocalFt,
       speedMph * 0.44704, tEffH * 3600, { fastDispersion: true });
     return { hsKs: core.Hs_after_Ks_ft, ts: core.T_s, hl: core.HL };
