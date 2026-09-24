@@ -344,3 +344,16 @@ DEVIATIONS: pwa_check.py edited beyond a bare live flag — live mode now runs S
 - **Follow-up (2026-09-24T21:20Z)**: 3 slots (`:15`) passed with **zero schedule events** → schedule
   moved to `:40` per GitHub's documented advice to avoid the top-of-hour load window (also forces
   schedule re-registration). Next expected fire 21:40Z; watchers armed.
+
+### Scheduler follow-up — watchdog + probe (2026-09-24T22:15Z, orchestrator)
+
+- **Watchdog shipped + tested live**: `~/.hermes/scripts/bpc_worker_watchdog.py` (dispatches the
+  worker when no run in 55 min; silent otherwise). First live run dispatched `36064415325` →
+  SUCCESS 13 s → live data refreshed (cache-busted fetch: 145 frames, `21:55:17Z`). Installed as
+  Hermes cron `bpc-worker-watchdog` (id `6697d1db49cd`, `5 * * * *`, no_agent, deliver to Reid's DM).
+- **Diagnostic probe** `.github/workflows/sched-probe.yml` (`*/10` canary, commit `63085ae`):
+  **zero fires** at the 22:00/22:10 ticks → GitHub's schedule scheduler is not firing schedules for
+  this repo at all right now (repo-level, not worker.yml-specific). Probe left as a tripwire; delete
+  once schedules demonstrably activate.
+- **App unaffected**: hourly refresh is now guaranteed by the watchdog; GitHub cron = bonus coverage
+  if/when it eventually activates.
