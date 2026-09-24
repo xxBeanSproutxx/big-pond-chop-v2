@@ -26,3 +26,12 @@ Append per phase. Live/verified numbers only; deviations called out explicitly.
 1. `node --test tests/` (directory positional) is not supported by Node 22.23.1 — the runner tries to load `tests` as a module (`MODULE_NOT_FOUND`). Suite is green via the equivalent `node --test` (auto-discovery) and `node --test tests/*.test.js`: **4/4 pass, exit 0**.
 2. Merged series starts at the AIFS 00Z (00:00Z) rather than HRRR's +12 h-past window (~05Z on an afternoon run), because AIFS begins earlier — union covers both. `wind.json` hours=**360** (≥343 gate satisfied), not the ~357 a pure HRRR-start union would give.
 
+### Orchestrator gate — PASS (2026-09-24T18:00Z, independently re-run)
+
+- Scope: `ce0ea6b` = worker/compute.mjs + worker.yml + docs + PROGRESS only; working tree clean; origin/main synced.
+- Unit suites re-run BY THE ORCHESTRATOR: parity/render/ui/wind all `ALL TESTS PASSED`, exit 0 ×4.
+- Local `data/`: 147 files present, every file = 83,220 B, total 12,233,340 B; `f000.bin` decodes to a real field (30,482 land=255; 1,898 calm=0; 84 distinct values).
+- CI provenance: data commit `257dc18` authored `bpc-worker <bpc-worker@users.noreply.github.com>` (artifacts came from the Actions run, not a local run).
+- Live curls re-run by orchestrator: frames.json 200/8,700 B · f000.bin 200/83,220 B (octet-stream) · wind.json 200/360 h · index.html 200.
+- Gate note for P2 client spec: `frames.json.frame[].file` = bare basename (`f000.bin`) → fetch as `data/<file>`.
+
