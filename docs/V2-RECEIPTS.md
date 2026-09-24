@@ -14,8 +14,15 @@ Append per phase. Live/verified numbers only; deviations called out explicitly.
 - **Guard**: AIFS all-null/failed → no writes, exit 0; HRRR dead → AIFS-only labels; IFS dead → gusts null past HRRR window. All artifacts computed in memory, written only after success.
 - **Unit suite**: `node --test` → **4/4 pass, exit 0** (parity, render, ui, wind).
   - DEVIATION: `node --test tests/` (directory positional) is rejected by Node 22.23.1 (`MODULE_NOT_FOUND`) — the runner only auto-discovers without an arg. Equivalent green command used: `node --test` (and `node --test tests/*.test.js`), both 4/4.
-- Dispatch run URL: _pending_
-- Pages: _pending_
-- Live curl evidence: _pending_
+- Dispatch run URL: https://github.com/xxBeanSproutxx/big-pond-chop-v2/actions/runs/36037293434 — **conclusion=success** (9 s), commit `257dc18` (data) on base `ce0ea6b`.
+- CI artifacts (pulled): frames=**147**, bin files=**147** (matches frames.json, 0 missing), total=**12,233,340 B**, max file=**83,220 B**, wind hours=**360**.
+- Pages: branch main/root, `html_url=https://xxbeansproutxx.github.io/big-pond-chop-v2/`, build id 1237056089 → **status=built**.
+- Live curl (2026-09-24T~17:55Z):
+  - `HEAD /data/frames.json` → **200**, content-type `application/json; charset=utf-8`, content-length **8700**.
+  - `HEAD /data/f000.bin` → **200**, content-type `application/octet-stream`, content-length **83220**.
+  - `GET /data/wind.json` → parsed, hours=**360**, `models={"wind_near":"hrrr","wind_mid":"aifs","gusts":"hrrr+ifs"}`.
 
-<!-- P0-DISPATCH -->
+### Deviations
+1. `node --test tests/` (directory positional) is not supported by Node 22.23.1 — the runner tries to load `tests` as a module (`MODULE_NOT_FOUND`). Suite is green via the equivalent `node --test` (auto-discovery) and `node --test tests/*.test.js`: **4/4 pass, exit 0**.
+2. Merged series starts at the AIFS 00Z (00:00Z) rather than HRRR's +12 h-past window (~05Z on an afternoon run), because AIFS begins earlier — union covers both. `wind.json` hours=**360** (≥343 gate satisfied), not the ~357 a pure HRRR-start union would give.
+
