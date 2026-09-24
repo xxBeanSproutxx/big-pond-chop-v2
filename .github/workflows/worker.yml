@@ -2,7 +2,7 @@ name: worker
 
 on:
   schedule:
-    - cron: '15 * * * *'
+    - cron: '40 * * * *'
   workflow_dispatch:
 
 concurrency:

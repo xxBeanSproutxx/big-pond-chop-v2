@@ -341,3 +341,6 @@ DEVIATIONS: pwa_check.py edited beyond a bare live flag — live mode now runs S
   re-run unchanged.
 - **Open item at gate time**: first scheduled (cron) worker run not yet observed — GitHub activates
   new schedules with up to ~1 h delay; orchestrator watching until the first scheduled success.
+- **Follow-up (2026-09-24T21:20Z)**: 3 slots (`:15`) passed with **zero schedule events** → schedule
+  moved to `:40` per GitHub's documented advice to avoid the top-of-hour load window (also forces
+  schedule re-registration). Next expected fire 21:40Z; watchers armed.
