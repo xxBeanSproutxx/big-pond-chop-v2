@@ -239,12 +239,10 @@ function buildDualUrl(lake, shore, horizon) {
     `&wind_speed_unit=mph&timezone=America%2FChicago&past_days=1&forecast_days=${days}`;
 }
 
-async function fetchWind(lat, lon, horizon) {
-  const res = await fetch(buildUrl(lat, lon, horizon), { cache: 'no-store' });
-  if (!res.ok) throw new Error(`open-meteo HTTP ${res.status}`);
-  return res.json();
-}
-
+// v2 NOTE: the client (src/render.js) no longer fetches Open-Meteo — it loads the
+// precomputed data/frames.json + data/wind.json instead. The single-location fetcher was
+// deleted; fetchWindTwo + ingest are retained ONLY because the frozen tests/wind.test.js
+// exercises them (live ingest + the dual-location parse), and tests/** is out of scope.
 async function fetchWindTwo(lake, shore, horizon) {
   const res = await fetch(buildDualUrl(lake, shore, horizon), { cache: 'no-store' });
   if (!res.ok) throw new Error(`open-meteo HTTP ${res.status}`);
@@ -365,6 +363,6 @@ async function ingest(opts = {}) {
 module.exports = {
   DEFAULT_POINT, SHORE_POINT, API, gammaToGrid, bearingDelta, lerpAngle, computeTeff, seedTeff,
   buildSeries, buildSeriesFrom, interpolate15, expandHourlyVector,
-  chicagoNow, selectDay, selectRange, currentIndex, buildUrl, buildDualUrl, fetchWind, fetchWindTwo,
+  chicagoNow, selectDay, selectRange, currentIndex, buildUrl, buildDualUrl, fetchWindTwo,
   parseTwoLocations, pointFromQuery, ingest, firstDaySlice,
 };

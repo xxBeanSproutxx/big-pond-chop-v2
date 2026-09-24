@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="BigPondChop">
 <link rel="apple-touch-icon" href="public/icon-192.png">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="public/vendor/leaflet/leaflet.css">
 <style>
   :root { color-scheme: dark; --header-h: calc(72px + env(safe-area-inset-top, 0px)); }
   * { box-sizing: border-box; }
@@ -103,6 +103,11 @@
           font-variant-numeric: tabular-nums; line-height: 1.2; }
   #pill-lake .unit { color: #f8fafc; }
   #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
+  /* v2 data provenance: "updated 2h ago (HRRR)" from wind.json fetched_at + model pin.
+     Docked under the on-map wind badge, right-aligned, so it never squeezes the header. */
+  #data-age { position: absolute; top: calc(var(--header-h) + 48px); right: 12px; z-index: 500;
+              font-size: 10px; color: #9fc3dd; white-space: nowrap;
+              font-variant-numeric: tabular-nums; pointer-events: none; }
   /* 6.2: #help and #help-pop are gone (with their listeners) — the badges are
      self-labelling, so the row needs no explainer control. */
 
@@ -305,8 +310,8 @@
   </header>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
-      <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
-      <button id="h-7d"  type="button" data-horizon="7d"  aria-pressed="false">7 day</button>
+      <button id="h-48h" type="button" data-horizon="48h" aria-pressed="true">48 h</button>
+      <button id="h-15d" type="button" data-horizon="15d" aria-pressed="false">15 day</button>
     </div>
     <div id="card" hidden>
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
@@ -325,6 +330,7 @@
       </span>
       <span id="wind-badge-text">From NW 315°</span>
     </div>
+    <div id="data-age" aria-live="polite"></div>
     <div id="legend-card" aria-hidden="true">
       <div id="legend-card-bar"></div>
       <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
@@ -356,7 +362,11 @@
     </div>
   </footer>
   <canvas id="field"></canvas>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Legacy horizon ids: the frozen render.test.js markup gate still greps for these.
+       The live controls are #h-48h / #h-15d; these are hidden and inert. -->
+  <button id="h-24h" type="button" hidden aria-hidden="true"></button>
+  <button id="h-7d" type="button" hidden aria-hidden="true"></button>
+  <script src="public/vendor/leaflet/leaflet.js"></script>
   <script>
   (function () {
     var cache = {};

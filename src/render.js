@@ -3,11 +3,20 @@
 // water-masked smoothing, zoom-aware gather, Leaflet overlay, map readout.
 // Pure geometry/gather/cache helpers are node-testable; mount() drives the DOM.
 
-const { BATHY_ROWS, BATHY_COLS, BATHY_CELLS, LAND_U16 } = require('./tables');
+const { BATHY_ROWS, BATHY_COLS, BATHY_CELLS, FETCH_ROWS, FETCH_COLS, LAND_U16 } = require('./tables');
 const waveMath = require('./wave-math');
 const ui = require('./ui');
 
 const SCALE_FT = 6.0;
+// Precomputed-frame layer (v2). Frames are Uint8 285x292: min(254, round(Hs_ft x 32)),
+// 255 = land/nodata. Delay math constant mirrored from src/delay-math.mjs (CG_MPH);
+// the browser cannot import that .mjs, so the one-cell steepness recompute below keeps
+// this in sync by hand.
+const FRAME_NODATA = 255;
+const FRAME_STEP_FT = 1 / 32;
+const CG_MPH = 11;            // == src/delay-math.mjs CG_MPH
+const M_PER_MI = 1609.344;
+const RAW_FRAME_CACHE_MAX = 8;
 const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 // CARTO's keyless basemaps now stamp "API KEY REQUIRED" on the tiles, so the muted
 // look is achieved by desaturating standard OSM tiles (see .leaflet-tile-pane in index.html).
@@ -100,11 +109,22 @@ function shouldPaintMap(nowMs, lastPaintMs, busy, minIntervalMs) {
 // a 550 px/day tape so it has ~176 px of runway at a phone viewport, and still fills at
 // least the viewing window on desktop/tablet (window-fill, as in 5G).
 function pxPerDay(horizon, windowW) {
-  return horizon === '7d' ? 330 : Math.max(550, Math.round(Number(windowW) || 0));
+  return (horizon === '7d' || horizon === '15d')
+    ? 330 : Math.max(550, Math.round(Number(windowW) || 0));
 }
 
 function pxPerFrame(horizon, windowW) {
   return pxPerDay(horizon, windowW) / 96;
+}
+
+// v2 precomputed tapes: 15d is 3-hourly (8 frames/day), 48h is hourly (24/day).
+// pxPerDay keeps the v1 density class; this gives one uniform px step per FRAME.
+function framesPerDay(horizon) {
+  return (horizon === '7d' || horizon === '15d') ? 8 : 24;
+}
+
+function framePx(horizon, windowW) {
+  return pxPerDay(horizon, windowW) / framesPerDay(horizon);
 }
 
 // Reticle identity: the active frame's centre lands exactly on the window centre.
@@ -166,9 +186,9 @@ function dayPartitions(entries) {
   return parts;
 }
 
-// 7-day horizon steps 4 frames (1 h) per play tick; 24 h steps 1.
+// 7-day/15-day horizon steps 4 frames per play tick; the 24h/48h horizon steps 1.
 function playStep(horizon) {
-  return horizon === '7d' ? 4 : 1;
+  return (horizon === '7d' || horizon === '15d') ? 4 : 1;
 }
 
 function nextPlayIdx(cur, step, n) {
@@ -193,6 +213,42 @@ function tickWinds(entries, start, end) {
     }
   }
   return out;
+}
+
+// ---- v2 precomputed-frame helpers (pure) ----
+// Zero-order hold: index of the last wind series entry with tMs <= queryMs (0 if before
+// the start). Mirrors src/delay-math.mjs sampleIndex (the browser cannot import the .mjs).
+function sampleWindIndex(timesMs, queryMs) {
+  if (!timesMs.length) return -1;
+  if (queryMs < timesMs[0]) return 0;
+  let lo = 0, hi = timesMs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (timesMs[mid] <= queryMs) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+// Bathy (285x292) cell -> coarse (95x98) fetch cell, the exact mapping computeField uses.
+function coarseIndexFor(cell) {
+  const row = Math.floor(cell / BATHY_COLS);
+  const col = cell % BATHY_COLS;
+  let rc = Math.trunc((row - 1) / 3);
+  rc = rc < 0 ? 0 : rc > FETCH_ROWS - 1 ? FETCH_ROWS - 1 : rc;
+  let cc = Math.trunc((col - 1) / 3);
+  cc = cc < 0 ? 0 : cc > FETCH_COLS - 1 ? FETCH_COLS - 1 : cc;
+  return rc * FETCH_COLS + cc;
+}
+
+// UTC ISO -> America/Chicago wall-clock 'YYYY-MM-DDTHH:MM' (the shape ui.* parses as local).
+function chicagoLocalIso(utcIso) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(utcIso));
+  const p = {};
+  for (const x of parts) p[x.type] = x.value;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 function bilinearSample(field, cols, rows, colF, rowF) {
@@ -419,8 +475,9 @@ async function mount(deps) {
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
   const horizonEl = document.getElementById('horizon');
-  const h24Btn = document.getElementById('h-24h');
-  const h7Btn = document.getElementById('h-7d');
+  const h48Btn = document.getElementById('h-48h');
+  const h15Btn = document.getElementById('h-15d');
+  const dataAgeEl = document.getElementById('data-age');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
@@ -443,15 +500,19 @@ async function mount(deps) {
     horizonEl.addEventListener(t, (e) => e.stopPropagation());
   });
   const q = new URLSearchParams(location.search);
-  const point = wind.pointFromQuery(location.search);
   const DEFAULT_HINT = 'tap the lake for a local readout';
 
-  // ---- stage 5D: horizon state (never let storage throw-crash boot) ----
+  // ---- horizon state (v2: 48h | 15d; never let storage throw-crash boot) ----
+  // '7d'/'24h' remain accepted on read for bookmarks written by older builds.
   const HORIZON_KEY = 'bpc.horizon';
+  const is15d = (v) => v === '15d' || v === '7d';
+  const is48h = (v) => v === '48h' || v === '24h';
   function readStoredHorizon() {
     try {
       const v = localStorage.getItem(HORIZON_KEY);
-      return v === '7d' || v === '24h' ? v : null;
+      if (is15d(v)) return '15d';
+      if (is48h(v)) return '48h';
+      return null;
     } catch (err) { return null; }
   }
   function storeHorizon(h) {
@@ -459,9 +520,11 @@ async function mount(deps) {
   }
   function queryHorizon() {
     const v = q.get('h');
-    return v === '7d' || v === '24h' ? v : null;
+    if (is15d(v)) return '15d';
+    if (is48h(v)) return '48h';
+    return null;
   }
-  let horizon = queryHorizon() || readStoredHorizon() || '24h';
+  let horizon = queryHorizon() || readStoredHorizon() || '48h';
   // Resolved horizon is written to both the store and the URL, ?h= merged over existing params.
   function persistHorizon(h) {
     horizon = h;
@@ -471,8 +534,8 @@ async function mount(deps) {
     history.replaceState(null, '', `${location.pathname}?${params.toString()}${location.hash}`);
   }
   function setHorizonPressed(h) {
-    h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
-    h7Btn.setAttribute('aria-pressed', h === '7d' ? 'true' : 'false');
+    h48Btn.setAttribute('aria-pressed', h === '48h' ? 'true' : 'false');
+    h15Btn.setAttribute('aria-pressed', h === '15d' ? 'true' : 'false');
   }
 
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -570,20 +633,14 @@ async function mount(deps) {
     return { name: ui.sectorFor(lat, lon, centroid), shore: isShoreCell(lat, lon) };
   }
 
-  const scratch = {
-    out: new Float64Array(BATHY_CELLS),
-    afterKs: new Float64Array(BATHY_CELLS),
-    ts: new Float64Array(BATHY_CELLS),
-  };
-
   let map = null, overlay = null;
-  let frames = [];
-  let shoreDay = null;    // 6B: shore series matching `frames`; null when unavailable
-  let stepMin = 15;
+  let allFrames = [];     // every precomputed frame (frames.json order)
+  let frames = [];        // the active horizon slice (48h = first 49, 15d = all)
+  let windSeries = [];    // [{ tMs, speedMph, dirTrueDeg, bearingGrid, tEffH, gustMph }]
+  let windTimesMs = [];
+  let windMeta = null;    // wind.json models/fetched_at
+  let stepMin = 60;
   let cur = 0;
-  let full7d = null;      // cached '7d' ingest result for the zero-fetch narrow
-  let widening = false;   // re-entry guard while the 7-day fetch is in flight
-  let applied = false;    // true after the first successful applyWindData (boot overrides)
   let nowTickIdx = null;  // now-index the hairline shows (null = hidden)
   let pinned = null;
   let pin = null;
@@ -593,7 +650,48 @@ async function mount(deps) {
   let bootHidden = false;
   let readoutTimer = null;
   let mapReady = false;
+  let showSeq = 0;        // bumps per showFrame; a stale await must not overwrite the UI
   let scheduleRefit = () => {}; // 6.3 item 2: assigned once the map exists (debounced fitLake)
+
+  // Decoded .bin grids (one Float64Array of capped Hs ft per frame), LRU by file name.
+  // The render cache below then keys per (idx, pin, W, H) exactly like v1.
+  const rawCache = createFrameCache({
+    max: RAW_FRAME_CACHE_MAX,
+    sizeOf: (b) => (b ? b.length * 8 + 64 : 0),
+  });
+
+  // Fetch + dequantize one precomputed frame: 255 -> land (0), else v/32 ft.
+  async function loadCapped(file) {
+    const hit = rawCache.get(file);
+    if (hit) return hit;
+    const res = await fetch('data/' + file);
+    if (!res.ok) throw new Error(`frame ${file} HTTP ${res.status}`);
+    const u8 = new Uint8Array(await res.arrayBuffer());
+    const out = new Float64Array(BATHY_CELLS);
+    for (let i = 0; i < out.length; i++) {
+      const v = u8[i] === undefined ? FRAME_NODATA : u8[i];
+      out[i] = v === FRAME_NODATA ? 0 : v * FRAME_STEP_FT;
+    }
+    rawCache.set(file, out);
+    return out;
+  }
+
+  // One-cell v1 recompute for roller steepness H/L at a frame's delayed wind. τ_cell =
+  // F_cell / cg with the same blended-bearing fetch and CG_MPH as src/delay-math.mjs.
+  function cellSteepness(e, cell) {
+    const depthU = tables.depth[cell];
+    const dLocalFt = depthU === LAND_U16 ? 0 : depthU * 0.25;
+    const F = waveMath.blendFetch(tables, coarseIndexFor(cell), e.bearingGrid);
+    const tauH = (F.F_m / M_PER_MI) / CG_MPH;
+    const q = e.utcMs - tauH * 3600000;
+    const si = sampleWindIndex(windTimesMs, q);
+    const w = si >= 0 ? windSeries[si] : null;
+    const speedMph = w ? w.speedMph : 0;
+    const tEffH = w ? w.tEffH : 0;
+    const core = waveMath.waveCore(F.F_m, F.d_path_ft, dLocalFt,
+      speedMph * 0.44704, tEffH * 3600, { fastDispersion: true });
+    return { hsKs: core.Hs_after_Ks_ft, ts: core.T_s, hl: core.HL };
+  }
 
   function setupMap() {
     if (mapReady) return;
@@ -720,8 +818,8 @@ async function mount(deps) {
   // never flips it, so the rest dims survive. Restored before the pointerup settle render.
   let dragRaster = false;
   let suspendStartMs = 0;     // 6.4 D2.2: start of the current suspension (valve clock)
-  let stickyHead = null;       // 5L: wide (24h) day header, clamped in writeTape
-  let scrubMinutes = null;     // 6.2: continuous minute position under the reticle mid-drag
+  let stickyHead = null;       // 5L: wide (48h) day header, clamped in writeTape
+  let scrubPos = null;         // v2: continuous frame position under the reticle mid-drag
 
   // Cached once per gesture / on layout change; never read in the move path.
   function refreshRailRect() {
@@ -732,7 +830,7 @@ async function mount(deps) {
   // The hairline lives INSIDE the tape, so it scrolls in and out of view naturally.
   function placeNowTick() {
     if (nowTickIdx == null || !frames.length || !viewportW) return;
-    nowTick.style.left = `${nowTickIdx * pxPerFrame(horizon, viewportW)}px`;
+    nowTick.style.left = `${nowTickIdx * framePx(horizon, viewportW)}px`;
   }
 
   // Single writer for the tape transform: centre the active frame under the fixed reticle.
@@ -744,15 +842,11 @@ async function mount(deps) {
       if (stickyHead.el.style.left !== want + 'px') stickyHead.el.style.left = want + 'px';
     }
   }
+  // idx may be fractional: the drag path feeds a continuous frame position so the tape
+  // follows the finger 1:1, while the map still paints the nearest whole frame.
   function writeTape(idx) {
     if (!viewportW) return;
-    applyTapeTransform(tapeTranslate(idx, pxPerFrame(horizon, viewportW), viewportW / 2));
-  }
-  // 6.2: drag writer — continuous minutes, so the tape follows the finger 1:1 instead of
-  // stepping frame to frame. Same reticle identity and sticky-header clamp.
-  function writeTapeMinutes(minutes) {
-    if (!viewportW) return;
-    applyTapeTransform(tapeTranslateMinutes(minutes, pxPerMinute(horizon, viewportW, stepMin), viewportW / 2));
+    applyTapeTransform(tapeTranslate(idx, framePx(horizon, viewportW), viewportW / 2));
   }
 
   // Stage 5H §C1: overlay URL dedupe — cache hits re-apply the same blob: URL today.
@@ -780,15 +874,13 @@ async function mount(deps) {
     scheduleMapPaint(idx);
   }
 
-  // 6.2: continuous drag step. Same cheap shape (one string + one transform) but the
-  // position is measured in minutes, so the pill reads true minute-level timestamps and
-  // the tape never snaps. The map still paints on the quantised frame index.
-  function scrubUiToMinutes(minutes) {
-    scrubMinutes = minutes;
-    const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
-    const idx = idxFromMinutes(minutes, step, frames.length);
+  // v2: continuous frame-position drag. The tape translate takes the fractional position
+  // (no sub-frame snapping of the gesture) while the pill/map use the nearest frame.
+  function scrubUiToPos(pos) {
+    scrubPos = pos;
+    const idx = Math.max(0, Math.min(frames.length - 1, Math.round(pos)));
     dragIdx = idx;
-    updateScrubUiMinutes(minutes);
+    updateScrubUi(idx, pos);
     scheduleMapPaint(idx);
   }
 
@@ -844,13 +936,12 @@ async function mount(deps) {
     trackDays.textContent = '';
     trackTicks.textContent = '';
     stickyHead = null;
-    trackLabel.textContent = horizon === '7d' ? '7 day' : '24 h';
+    trackLabel.textContent = horizon === '15d' ? '15 day' : '48 h';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
-    const pxf = pxPerFrame(horizon, viewportW);
+    const pxf = framePx(horizon, viewportW);
     trackTape.style.width = `${n * pxf}px`;
     const parts = dayPartitions(frames);
-    const lastPart = parts.length - 1;
     for (let k = 0; k < parts.length; k++) {
       const start = parts[k].index;
       const end = k + 1 < parts.length ? parts[k + 1].index : n;
@@ -860,74 +951,58 @@ async function mount(deps) {
       block.className = 'day-block' + (k % 2 ? ' alt' : '');
       block.style.left = `${left}px`;
       block.style.width = `${w}px`;
-      const label = ui.dayLabel(parts[k].date, true);
-      // Exactly one header per day block. A wide (24 h) block pins it left at the day
-      // boundary; narrow 7 d blocks keep the centred default from CSS.
       const head = document.createElement('span');
       head.className = 'day-head';
       if (w > 275) {
         head.style.left = '6px';
         head.style.transform = 'none';
-        stickyHead = { el: head, blockLeft: left }; // 5L: only the wide 24h block is sticky
+        stickyHead = { el: head, blockLeft: left }; // wide 48h block is sticky
       }
-      head.textContent = label;
+      head.textContent = ui.dayLabel(parts[k].date, true);
       block.appendChild(head);
-      for (let h = 0; h < 24; h += 3) {
-        const sub = document.createElement('span');
-        sub.className = 'day-sub' + (h === 0 ? ' edge' : '');
-        if (h === 0) {
-          // Left-anchored so the first tick can never clip against the block edge.
-          sub.style.left = '3px';
-          sub.style.transform = 'none';
-        } else {
-          sub.style.left = `${Math.max(6, Math.min(w - 6, (h / 24) * w))}px`;
-        }
-        sub.textContent = String((h % 12) || 12).padStart(2, '0');
-        block.appendChild(sub);
-      }
-      // 5P: one heat stop per hour (24 samples from the 15-min frames), feeding the
-      // per-block ribbon gradient. Appended before the wind numbers so the ribbon paints
-      // behind them (no z-index games). Same per-block loop as the ticks; no per-frame work.
+      // v2: ticks live at real frame times. Frames are hourly (48h) or 3-hourly (15d),
+      // so a 3h tick exists only where a frame's local minute is :00 and hour % 3 === 0.
       const hourly = [];
-      for (let h = 0; h < 24; h++) {
-        const hh = String(h).padStart(2, '0') + ':00';
-        for (let i = start; i < end; i++) {
-          const e = frames[i];
-          if (!e || String(e.time).slice(11, 16) !== hh) continue;
-          hourly.push(e.speedMph);
-          break;
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
+        const onTick = mm === 0 && hh % 3 === 0;
+        if (onTick) {
+          const sub = document.createElement('span');
+          sub.className = 'day-sub' + (hh === 0 ? ' edge' : '');
+          if (i === start) {
+            sub.style.left = '3px';
+            sub.style.transform = 'none';
+          } else {
+            sub.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+          }
+          sub.textContent = String((hh % 12) || 12).padStart(2, '0');
+          block.appendChild(sub);
         }
+        if (mm === 0 && Number.isFinite(e.speedMph)) hourly.push(e.speedMph);
       }
       const heat = document.createElement('div');
       heat.className = 'day-heat';
       heat.setAttribute('aria-hidden', 'true');
       heat.style.backgroundImage = ui.windHeatGradient(hourly);
       block.appendChild(heat);
-      // 5P: three-hourly wind labels embedded in the ribbon, mirroring each three-hourly
-      // tick's anchor rule so the centres line up within 1.5 px. No label on the boundary
-      // 12 tick (no 24:00 frame).
-      for (const t of tickWinds(frames, start, end)) {
+      // 5P: three-hourly wind labels embedded in the ribbon, at the same anchors as ticks.
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
+        if (mm !== 0 || hh % 3 !== 0 || !Number.isFinite(e.speedMph)) continue;
         const wind = document.createElement('span');
         wind.className = 'day-wind';
-        if (t.h === 0) {
+        if (i === start) {
           wind.style.left = '3px';
           wind.style.transform = 'none';
         } else {
-          wind.style.left = `${Math.max(6, Math.min(w - 6, (t.h / 24) * w))}px`;
+          wind.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
         }
-        wind.textContent = String(t.mph);
+        wind.textContent = String(Math.round(e.speedMph));
         block.appendChild(wind);
-      }
-      // Midnight boundary tick, right-anchored, on the 24 h tape's final block only:
-      // 7d blocks are too narrow (~5 px to the next day's tick) and would double the label.
-      if (horizon === '24h' && k === lastPart) {
-        const edge = document.createElement('span');
-        edge.className = 'day-sub edge';
-        edge.style.right = '2px';
-        edge.style.left = 'auto';
-        edge.style.transform = 'none';
-        edge.textContent = '12';
-        block.appendChild(edge);
       }
       trackDays.appendChild(block);
     }
@@ -942,7 +1017,7 @@ async function mount(deps) {
 
   // Single feedback helper, called by showFrame (play + programmatic) and by scrub.
   // The pill is permanent and fixed: only its text changes; the tape moves underneath.
-  function updateScrubUi(idx) {
+  function updateScrubUi(idx, pos) {
     if (!frames.length || !viewportW) return;
     const e = frames[idx];
     const text = ui.formatPillTime(e.time);
@@ -950,23 +1025,7 @@ async function mount(deps) {
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
-    writeTape(idx);
-  }
-
-  // 6.2: minute-level feedback for the continuous drag path. The pill reads the TRUE minute
-  // under the reticle (floor frame + residual minutes, DST-safe via ui.formatPillTimeAt)
-  // while the aria index and the map lookup stay on the 15-min frame grid.
-  function updateScrubUiMinutes(minutes) {
-    if (!frames.length || !viewportW) return;
-    const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
-    const total = Math.round(minutes);
-    const i = Math.max(0, Math.min(frames.length - 1, Math.floor(total / step)));
-    const e = frames[i];
-    const text = ui.formatPillTimeAt(e.time, total - i * step) || ui.formatPillTime(e.time);
-    if (timePill.textContent !== text) timePill.textContent = text;
-    trackEl.setAttribute('aria-valuenow', String(idxFromMinutes(total, step, frames.length)));
-    trackEl.setAttribute('aria-valuetext', `${text}, ${ui.dayLabel(e.time, true)}`);
-    writeTapeMinutes(minutes);
+    writeTape(pos == null ? idx : pos);
   }
 
   deck.addEventListener('pointerdown', (e) => {
@@ -983,9 +1042,9 @@ async function mount(deps) {
     deck.setPointerCapture(e.pointerId);
     scrubStartX = e.clientX;
     scrubStartIdx = cur;
-    // 6.2: the drag baseline in minutes, so the offset is continuous from the very first
-    // pointermove (the pill can read 7:04 instead of jumping to 7:00 or 7:15).
-    scrubMinutes = cur * (stepMin > 0 ? stepMin : FRAME_MINUTES);
+    // v2: the drag baseline is the frame position, so the offset is continuous from the
+    // first pointermove (the gesture never snaps; the map paints the nearest frame).
+    scrubPos = cur;
     // 6.4 D3.2: the drag-start trigger queues a neighbour warm, which runs when idle
     // (prefetchNeighbours no-ops while the gesture is live).
     schedulePrefetchNeighbours();
@@ -1000,14 +1059,13 @@ async function mount(deps) {
       if (!scrubbing) return;
       // A real drag-move switches to the cheap drag raster; a tap never reaches here.
       if (!dragRaster) { dragRaster = true; applyDesiredDims(); }
-      // 6.2: continuous drag. The tape translate and the pill clock both run on raw pixel
-      // deltas converted to minutes; the canvas keeps querying the 96-frame array via
-      // Math.round(minutes / step) inside scrubUiToMinutes (see scheduleMapPaint).
-      const step = stepMin > 0 ? stepMin : FRAME_MINUTES;
-      const ppm = pxPerMinute(horizon, viewportW, step);
-      const maxMin = Math.max(0, (frames.length - 1) * step);
+      // v2: continuous frame-position drag. One pixel of tape is one frame step; the tape
+      // translate takes the fractional position, the map the nearest whole frame.
+      const pxf = framePx(horizon, viewportW);
+      const maxPos = Math.max(0, frames.length - 1);
+      const pos = Math.max(0, Math.min(maxPos, scrubStartIdx - (scrubX - scrubStartX) / pxf));
       // 5H: UI-only step (zero drag latency); the map catches up on its own throttle.
-      scrubUiToMinutes(minutesFromDrag(scrubX - scrubStartX, scrubStartIdx * step, ppm, maxMin));
+      scrubUiToPos(pos);
     });
   });
   function endScrub(e) {
@@ -1015,10 +1073,10 @@ async function mount(deps) {
     scrubbing = false;
     scrubPointerId = null;
     trackTape.style.transition = ''; // restore the playback glide
-    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip. 6.2: the
-    // continuous minute position is dropped here, so the tape glides from where the finger
-    // left it to the quantised frame (the .32 s CSS transition is already restored above).
-    scrubMinutes = null;
+    // 5H §B3: snap to the exact final frame, bypassing throttle + busy skip. v2: the
+    // continuous frame position is dropped here, so the tape glides from where the finger
+    // left it to the nearest frame (the .32 s CSS transition is already restored above).
+    scrubPos = null;
     suspendStartMs = 0; // 6.4 D2.2: release the valve clock for the next gesture
     // 6.3 D3.5: restore the rest raster class before the full-width settle render.
     if (dragRaster) { dragRaster = false; applyDesiredDims(); }
@@ -1061,25 +1119,40 @@ async function mount(deps) {
     return { idx: cur, pinIdx: pinned ? pinned.i : -1, W: canvas.width, H: canvas.height };
   }
 
-  function frameFor(idx, gen) {
+  async function frameFor(idx, gen) {
     if (!frames.length) return null;
+    const frameEntry = frames[idx];
+    if (!frameEntry) return null;
     const W = canvas.width, H = canvas.height;
     const pinIdx = pinned ? pinned.i : -1;
     const key = cacheKey(idx, pinIdx, W, H);
     const hit = frameCache.get(key);
     if (hit) return hit;
     const t0 = performance.now();
-    const f = computeFrame(tables, frames[idx], { gamma, ...scratch });
-    const raster = gatherRaster(f.capped, warp, W, H);
+    let capped;
+    try {
+      capped = await loadCapped(frameEntry.file);
+    } catch (err) {
+      console.error(err);
+      showNote('wind unavailable — retry', () => showFrame(cur));
+      return null;
+    }
+    const raster = gatherRaster(capped, warp, W, H);
     const landFrac = landMaskRaster(warp, tables, W, H);
     const smooth = smoothRaster(raster, landFrac, W, H);
-    const p10Ft = ui.p10(f.capped);
-    const peak = gridToLonlat(warp, f.maxIdx % BATHY_COLS, Math.floor(f.maxIdx / BATHY_COLS));
+    const p10Ft = ui.p10(capped);
+    let maxIdx = 0, maxHs = 0;
+    for (let i = 0; i < capped.length; i++) {
+      if (capped[i] > maxHs) { maxHs = capped[i]; maxIdx = i; }
+    }
+    const dPeak = tables.depth[maxIdx] === LAND_U16 ? 0 : tables.depth[maxIdx] * 0.25;
+    const peak = gridToLonlat(warp, maxIdx % BATHY_COLS, Math.floor(maxIdx / BATHY_COLS));
+    const steep = cellSteepness(frameEntry, maxIdx);
     const stats = {
-      maxHs: f.maxHs, maxIdx: f.maxIdx, rollerFt: f.rollerFt, hlMax: f.hlMax,
-      p10Ft, peakLat: peak.lat, peakLon: peak.lon, entry: frames[idx],
+      maxHs, maxIdx, rollerFt: hmaxFt(maxHs, dPeak), hlMax: steep.hl,
+      p10Ft, peakLat: peak.lat, peakLon: peak.lon, entry: frameEntry,
     };
-    const pinVals = pinned ? { hsKs: f.afterKs[pinned.i], ts: f.ts[pinned.i] } : null;
+    const pinVals = pinned ? cellSteepness(frameEntry, pinned.i) : null;
     const entry = { url: null, stats, pinVals };
     frameCache.set(key, entry);
     const meta = { idx, pinIdx, W, H };
@@ -1117,10 +1190,11 @@ async function mount(deps) {
     if (el) el.textContent = value;
   }
 
-  function updatePinned() {
+  async function updatePinned() {
     if (!pinned || !frames.length) return;
-    const built = frameFor(cur);
-    if (!built || !built.pinVals) return;
+    const pinnedCell = pinned.i;
+    const built = await frameFor(cur);
+    if (!pinned || pinned.i !== pinnedCell || !built || !built.pinVals) return;
     const d = tables.depth[pinned.i] * 0.25;
     const hsKs = built.pinVals.hsKs, ts = built.pinVals.ts;
     const hs = Math.min(hsKs, 0.6 * d);
@@ -1162,10 +1236,13 @@ async function mount(deps) {
     card.hidden = true;
   }
 
-  function showFrame(idx, gen) {
+  async function showFrame(idx, gen) {
     if (!frames.length) return;
-    cur = Math.max(0, Math.min(frames.length - 1, idx));
-    const built = frameFor(cur, gen);
+    const target = Math.max(0, Math.min(frames.length - 1, idx));
+    const seq = ++showSeq;
+    cur = target;
+    const built = await frameFor(target, gen);
+    if (seq !== showSeq) return; // a newer showFrame superseded this one
     if (!built) return;
     const s = built.stats, e = s.entry;
     if (built.url) setOverlayUrl(built.url); // null while the async encode is in flight
@@ -1175,13 +1252,11 @@ async function mount(deps) {
     body.dataset.hsFt = s.maxHs.toFixed(3);
     body.dataset.hmaxFt = s.rollerFt.toFixed(3);
     body.dataset.p10Ft = s.p10Ft.toFixed(3);
-    body.dataset.windMph = e.speedMph.toFixed(1);
+    body.dataset.windMph = Number(e.speedMph).toFixed(1);
     body.dataset.bearingGrid = e.bearingGrid.toFixed(3);
     body.dataset.teffH = e.tEffH.toFixed(2);
-    // During a drag the tape UI is owned by the continuous scrub path (newest minute);
-    // only the map paints. Otherwise the snapped frame owns the pill + tape.
-    if (scrubbing && scrubMinutes != null) updateScrubUiMinutes(scrubMinutes);
-    else updateScrubUi(cur);
+    // During a drag the tape UI is owned by the continuous scrub path; only the map paints.
+    if (!scrubbing) updateScrubUi(cur);
     // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
     // shore series is still ingested and kept on hand, it is simply not displayed.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
@@ -1311,102 +1386,132 @@ async function mount(deps) {
   // test hook: same handler the map click uses
   window.__bpcTap = (lat, lon) => placePin(L.latLng(lat, lon));
 
-  function applyWindData(data) {
-    frames = data.day;
-    shoreDay = data.shoreDay || null;
-    stepMin = data.stepMin || 15;
+  // ---- v2 forecast: precomputed frame index + merged wind series (no client compute) ----
+  // Rebuild the worker's hourly series from wind.json so client-side verdict/steepness math
+  // reads the SAME t_eff and grid bearing the worker used (wind.computeTeff, dtH = 1 h).
+  function buildWindSeries(windJson) {
+    const hours = (windJson && windJson.hours) || [];
+    const raw = hours.map((h) => {
+      const dir = Number(h.dir);
+      return {
+        time: h.t,
+        tMs: Date.parse(h.t),
+        speedMph: Number(h.speed),
+        gustMph: h.gust == null ? null : Number(h.gust),
+        dirTrueDeg: dir,
+        tempF: h.temp, precipMm: h.precip, src: h.src,
+        bearingGrid: wind.gammaToGrid(dir, gamma),
+      };
+    });
+    const teff = wind.computeTeff(raw, 1);
+    for (let i = 0; i < raw.length; i++) raw[i].tEffH = teff[i];
+    return raw;
+  }
+
+  function updateDataAge() {
+    if (!dataAgeEl || !windMeta) return;
+    const src = { hrrr: 'HRRR', aifs: 'AIFS', ifs: 'IFS' };
+    const near = src[windMeta.wind_near] || src[windMeta.wind_mid] || 'model';
+    const fetched = Date.parse(windMeta.fetched_at);
+    const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
+    let age = '—';
+    if (Number.isFinite(ageH)) age = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
+    dataAgeEl.textContent = `updated ${age} (${near})`;
+  }
+
+  // Cache-bust the two index files so a fresh open never reads a stale manifest; the
+  // per-frame .bin fetches stay plain (the SW caches them with a query-less key).
+  async function loadForecast() {
+    const cb = Date.now();
+    const [fj, wj] = await Promise.all([
+      fetchJson(`data/frames.json?cb=${cb}`),
+      fetchJson(`data/wind.json?cb=${cb}`),
+    ]);
+    windSeries = buildWindSeries(wj);
+    windTimesMs = windSeries.map((w) => w.tMs);
+    windMeta = Object.assign({}, wj.models, { fetched_at: wj.fetched_at });
+    allFrames = ((fj && fj.frames) || []).map((f) => {
+      const utcMs = Date.parse(f.t);
+      const si = sampleWindIndex(windTimesMs, utcMs);
+      const w = si >= 0 ? windSeries[si] : null;
+      return {
+        file: f.file, utcMs,
+        time: chicagoLocalIso(f.t),
+        speedMph: w ? w.speedMph : 0,
+        gustMph: w ? w.gustMph : null,
+        dirTrueDeg: w ? w.dirTrueDeg : 0,
+        bearingGrid: w ? w.bearingGrid : 0,
+        tEffH: w ? w.tEffH : 0,
+      };
+    });
+    updateDataAge();
+  }
+
+  // Re-slice the in-memory frame set for the active horizon (48h = first 49 hourly frames;
+  // 15d = every frame). Zero network on the toggle path.
+  function applyForecast() {
+    frames = horizon === '15d' ? allFrames : allFrames.slice(0, 49);
     builtMs = 0;
     frameCache.clear();
     const d = desiredDims();
     if (d.W !== canvas.width || d.H !== canvas.height) {
       canvas.width = d.W; canvas.height = d.H; resetOverlayDedupe();
     }
-    console.info(`lazy frames: ${frames.length} @ ${stepMin} min`);
+    console.info(`precomputed frames: ${frames.length} of ${allFrames.length}`);
     trackEl.setAttribute('aria-valuemax', String(Math.max(0, frames.length - 1)));
     refreshRailRect();
     renderTimeline();
-    // Query overrides apply only to the first (boot) ingest; toggles/refresh snap to now.
-    const bootOverride = !applied && (q.has('hour') || q.has('frame'));
-    applied = true;
-    const nowIdx = Number.isFinite(data.currentIndex) ? data.currentIndex : 0;
-    // The now-tick marks the real "now"; an explicit ?hour=/?frame= override hides it.
-    if (!q.has('hour') && !q.has('frame') && frames.length) {
-      nowTickIdx = nowIdx;
-      nowTick.hidden = false;
-      placeNowTick();
-    } else {
-      nowTickIdx = null;
-      nowTick.hidden = true;
+    nowTickIdx = null;
+    nowTick.hidden = true;
+    let start = 0;
+    if (frames.length) {
+      const now = Date.now();
+      for (let i = 0; i < frames.length; i++) if (frames[i].utcMs <= now) start = i;
+      if (q.has('hour')) {
+        const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
+        const k = frames.findIndex((e) => e.time.slice(11, 13) === hh);
+        if (k >= 0) start = k;
+      } else if (q.has('frame')) {
+        const k = parseInt(q.get('frame'), 10);
+        if (Number.isFinite(k)) start = Math.max(0, Math.min(frames.length - 1, k));
+      } else {
+        nowTickIdx = start;
+        nowTick.hidden = false;
+        placeNowTick();
+      }
     }
-    let start;
-    if (bootOverride && q.has('hour')) {
-      const hh = String(parseInt(q.get('hour'), 10)).padStart(2, '0');
-      start = frames.findIndex((e) => e.time.slice(11, 13) === hh);
-    } else if (bootOverride && q.has('frame')) {
-      start = parseInt(q.get('frame'), 10);
-    } else {
-      start = nowIdx;
-    }
-    showFrame(Number.isFinite(start) && start >= 0 ? start : 0);
+    showFrame(start);
   }
 
-  // Wind-only retry: map data is already decoded and never refetched.
-  async function refreshWind() {
+  // Retry path: the map data stays decoded; only the forecast index is refetched.
+  async function refreshData() {
     hideNote();
-    boot('Loading wind…', null);
+    boot('Loading forecast…', null);
     try {
-      const data = await wind.ingest({ point, gamma, horizon });
-      if (horizon === '7d') full7d = data;
-      applyWindData(data);
+      await loadForecast();
+      applyForecast();
     } catch (err) {
       console.error(err);
       hideBoot();
-      showNote('wind unavailable — retry', refreshWind);
+      showNote('wind unavailable — retry', refreshData);
     }
   }
 
-  // 24h -> 7d: fetch the wide window once, cache it, then apply.
-  async function widenHorizon() {
-    if (widening || horizon === '7d') return;
-    widening = true;
+  function setHorizon(h) {
+    if (horizon === h) return;
     pause();
-    hideNote();
-    boot('Loading 7-day wind…', null);
-    try {
-      const data = await wind.ingest({ point, gamma, horizon: '7d' });
-      full7d = data;
-      persistHorizon('7d');
-      setHorizonPressed('7d');
-      applyWindData(data);
-    } catch (err) {
-      console.error(err);
-      hideBoot();
-      showNote('wind unavailable — retry', widenHorizon);
-    } finally {
-      widening = false;
-    }
+    persistHorizon(h);
+    setHorizonPressed(h);
+    if (allFrames.length) applyForecast();
+    else renderTimeline();
   }
 
-  // 7d -> 24h: slice the in-memory 7-day series; ZERO network on this path.
-  function narrowHorizon() {
-    if (horizon !== '7d' || !full7d) return;
-    pause();
-    const data = Object.assign({}, full7d, {
-      day: wind.firstDaySlice(full7d.day),
-      shoreDay: full7d.shoreDay ? wind.firstDaySlice(full7d.shoreDay) : null,
-      horizon: '24h',
-    });
-    persistHorizon('24h');
-    setHorizonPressed('24h');
-    applyWindData(data);
-  }
-
-  h24Btn.addEventListener('click', () => { if (horizon !== '24h') narrowHorizon(); });
-  h7Btn.addEventListener('click', () => { if (horizon !== '7d') widenHorizon(); });
+  h48Btn.addEventListener('click', () => setHorizon('48h'));
+  h15Btn.addEventListener('click', () => setHorizon('15d'));
   setHorizonPressed(horizon);
   persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)
 
-  // Full boot: map data first (streamed), then wind. Each step retries itself.
+  // Full boot: map data first (streamed), then the precomputed forecast. Each retries itself.
   async function bootMap() {
     hideNote();
     try {
@@ -1418,10 +1523,10 @@ async function mount(deps) {
       return;
     }
     setupMap();
-    await refreshWind();
+    await refreshData();
   }
 
-  document.getElementById('refresh').addEventListener('click', refreshWind);
+  document.getElementById('refresh').addEventListener('click', refreshData);
   await bootMap();
 }
 
@@ -1432,7 +1537,7 @@ module.exports = {
   bilinearSample, gatherRaster, hmaxFt, computeFrame, paintRaster,
   landMaskRaster, smoothRaster, cacheKey, frameBytes, createFrameCache, mount,
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
-  pxPerDay, pxPerFrame, tapeTranslate, idxFromDrag, dayPartitions, playStep, nextPlayIdx,
-  pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
-  tickWinds,
+  pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
+  playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
+  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
 };

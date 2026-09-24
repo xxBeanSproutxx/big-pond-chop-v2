@@ -182,12 +182,14 @@ def pct(values, p):
 
 
 def goto_horizon(page, horizon):
-    sel = "#h-24h" if horizon == "24h" else "#h-7d"
-    want = "95" if horizon == "24h" else "671"
+    # v2: 48h = first 49 hourly frames (max 48); 15d = the full precomputed set.
+    sel = "#h-48h" if horizon == "48h" else "#h-15d"
     if page.get_attribute(sel, "aria-pressed") != "true":
         page.click(sel)
+    n = page.evaluate(
+        "() => parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) + 1")
     page.wait_for_function(
-        "() => document.getElementById('track').getAttribute('aria-valuemax') === '%s'" % want,
+        "() => parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) >= 48",
         timeout=90000)
     page.wait_for_timeout(600)
 
@@ -208,7 +210,7 @@ def measure_horizon(page, horizon):
     g = read_geometry(page)
     if not g["tape"]:
         return None
-    px_day = g["tape"] / (7.0 if horizon == "7d" else 1.0)
+    px_day = g["tape"] / (2.0 if horizon == "48h" else 15.0)
     return {
         "window": round(g["window"], 1),
         "tape": round(g["tape"], 1),
@@ -261,6 +263,67 @@ def drag_touch(ctx, page, x0, y0, steps=30, dist=240, pace_ms=0):
     return lat, stats, drag_ms
 
 
+def measured_drag(page, ctx, touch, horizon):
+    """Reset to frame 0, run the fixed 30-step LEFT drag, return the measured record."""
+    goto_horizon(page, horizon)
+    # Known start: Home -> frame 0, then wait out the 320 ms tape glide.
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(500)
+    g = read_geometry(page)
+    # Warm-up (throwaway, not measured): JIT + a few cache entries so the measured drag
+    # is not dominated by the first cold fetch/encode.
+    if touch:
+        drag_touch(ctx, page, g["cx"], g["y"])
+    else:
+        drag_mouse(page, g["cx"], g["y"])
+    page.wait_for_timeout(300)
+    page.focus("#track")
+    page.keyboard.press("Home")
+    page.wait_for_timeout(500)
+    start_idx = int(page.get_attribute("#track", "aria-valuenow"))
+    n, pxf = g["n"], g["tape"] / g["n"]
+
+    page.evaluate("() => window.__benchReset()")
+    if touch:
+        lat, stats, drag_ms = drag_touch(ctx, page, g["cx"], g["y"])
+        if not page.evaluate("() => window.__bench.touched"):
+            raise RuntimeError("CDP touchStart did not reach the page (no touchstart)")
+    else:
+        lat, stats, drag_ms = drag_mouse(page, g["cx"], g["y"])
+    page.wait_for_timeout(400)
+    after = page.evaluate(
+        "() => ({ idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),"
+        " pill: document.getElementById('time-pill').textContent,"
+        " hour: document.body.dataset.hour })")
+
+    moves = stats["moves"]
+    if moves <= 0:
+        raise RuntimeError("drag delivered 0 pointermove events")
+    dx = (stats["lastX"] - stats["downX"]) if stats["lastX"] is not None else 0.0
+    expected = max(0, min(n - 1, js_round(start_idx - dx / pxf)))
+    longtasks = stats["longtasks"]
+    return {
+        "horizon": horizon,
+        "moves": moves, "downX": stats["downX"], "lastX": stats["lastX"],
+        "dx": round(dx, 1), "dragMs": round(drag_ms, 1),
+        "startIdx": start_idx, "expectedIdx": expected,
+        "finalIdx": after["idx"], "finalPill": after["pill"],
+        "finalHour": after["hour"],
+        "swaps": stats["srcSwaps"], "blobCreated": stats["created"],
+        "blobSrcWrites": stats["blobSrc"], "imgSrcWrites": stats["imgSrc"],
+        "mapPaints": stats["paints"], "tapeTx": stats["tapeTx"],
+        "frameMs": stats["frameMs"],
+        "longtasks": longtasks, "longMax": max(longtasks) if longtasks else 0,
+        "latencies": [round(x, 1) for x in lat],
+        "latency": {
+            "median": round(statistics.median(lat), 2) if lat else 0.0,
+            "p90": round(pct(lat, 90), 2),
+            "max": round(max(lat), 2) if lat else 0.0,
+        },
+    }
+
+
 def run_case(pw, url, width, height, dsf, label, touch=False):
     case = {"label": label, "viewport": "%dx%d@%d" % (width, height, dsf),
             "mode": "cdp-touch" if touch else "mouse", "available": False, "error": None}
@@ -275,75 +338,21 @@ def run_case(pw, url, width, height, dsf, label, touch=False):
         page.wait_for_function(OVERLAY_OK, timeout=90000)
 
         case["horizons"] = {
-            "24h": measure_horizon(page, "24h"),
-            "7d": measure_horizon(page, "7d"),
+            "48h": measure_horizon(page, "48h"),
+            "15d": measure_horizon(page, "15d"),
         }
-        goto_horizon(page, "24h")
 
         inst = page.evaluate(
             "() => ({ tx: window.__bench.txInst, src: window.__bench.srcInst,"
             " long: window.__bench.longInst, paint: window.__bench.paintInst })")
         case["instruments"] = inst
 
-        # Known start: Home -> frame 0, then wait out the 320 ms tape glide.
-        page.focus("#track")
-        page.keyboard.press("Home")
-        page.wait_for_timeout(500)
-        g = read_geometry(page)
-        start_idx = int(page.get_attribute("#track", "aria-valuenow"))
-        n, pxf = g["n"], g["tape"] / g["n"]
-
-        # Warm-up (throwaway, not measured): JIT + a few cache entries so the measured drag
-        # is not dominated by the first cold build. Same on both trees.
-        if touch:
-            drag_touch(ctx, page, g["cx"], g["y"])
-        else:
-            drag_mouse(page, g["cx"], g["y"])
-        page.wait_for_timeout(300)
-        page.focus("#track")
-        page.keyboard.press("Home")
-        page.wait_for_timeout(500)
-        start_idx = int(page.get_attribute("#track", "aria-valuenow"))
-
-        page.evaluate("() => window.__benchReset()")
-        if touch:
-            lat, stats, drag_ms = drag_touch(ctx, page, g["cx"], g["y"])
-            touched = page.evaluate("() => window.__bench.touched")
-            if not touched:
-                raise RuntimeError("CDP touchStart did not reach the page (no touchstart)")
-        else:
-            lat, stats, drag_ms = drag_mouse(page, g["cx"], g["y"])
-        page.wait_for_timeout(400)
-        after = page.evaluate(
-            "() => ({ idx: parseInt(document.getElementById('track').getAttribute('aria-valuenow'), 10),"
-            " pill: document.getElementById('time-pill').textContent,"
-            " hour: document.body.dataset.hour })")
-
-        moves = stats["moves"]
-        if moves <= 0:
-            raise RuntimeError("drag delivered 0 pointermove events")
-        dx = (stats["lastX"] - stats["downX"]) if stats["lastX"] is not None else 0.0
-        expected = max(0, min(n - 1, js_round(start_idx - dx / pxf)))
-        longtasks = stats["longtasks"]
+        case["drags"] = {}
+        for hz in ("48h", "15d"):
+            case["drags"][hz] = measured_drag(page, ctx, touch, hz)
+        case["drag"] = case["drags"]["48h"]
+        case["drag15d"] = case["drags"]["15d"]
         case["available"] = True
-        case["drag"] = {
-            "moves": moves, "downX": stats["downX"], "lastX": stats["lastX"],
-            "dx": round(dx, 1), "dragMs": round(drag_ms, 1),
-            "startIdx": start_idx, "expectedIdx": expected,
-            "finalIdx": after["idx"], "finalPill": after["pill"],
-            "finalHour": after["hour"],
-            "swaps": stats["srcSwaps"], "blobCreated": stats["created"],
-            "blobSrcWrites": stats["blobSrc"], "imgSrcWrites": stats["imgSrc"],
-            "mapPaints": stats["paints"], "tapeTx": stats["tapeTx"],
-            "frameMs": stats["frameMs"],
-            "longtasks": longtasks, "longMax": max(longtasks) if longtasks else 0,
-            "latencies": [round(x, 1) for x in lat],
-            "latency": {
-                "median": round(statistics.median(lat), 2) if lat else 0.0,
-                "p90": round(pct(lat, 90), 2),
-                "max": round(max(lat), 2) if lat else 0.0,
-            },
-        }
     except Exception as exc:  # noqa: BLE001 - bench records, never aborts
         case["available"] = False
         case["error"] = "%s: %s" % (type(exc).__name__, exc)
@@ -354,57 +363,64 @@ def run_case(pw, url, width, height, dsf, label, touch=False):
     return case
 
 
+def _drag_checks(tag, d):
+    lat = d["latency"]
+    ratio = (lat["max"] / lat["median"]) if lat["median"] else 0.0
+    return [
+        ("%s_index_exact" % tag, d["finalIdx"] == d["expectedIdx"],
+         "idx=%d expected=%d" % (d["finalIdx"], d["expectedIdx"])),
+        # Absolute budgets: the modal step is ~one input frame. (max/median is reported,
+        # but the ratio alone is pathological when the median drops to the input floor.)
+        ("%s_median<=25ms" % tag, lat["median"] <= 25,
+         "median=%.2f p90=%.2f max=%.2f max/median=%.2f"
+         % (lat["median"], lat["p90"], lat["max"], ratio)),
+        ("%s_max<=100ms" % tag, lat["max"] <= 100,
+         "max=%.2f median=%.2f" % (lat["max"], lat["median"])),
+    ]
+
+
 def verdict(case):
     if not case.get("available"):
         return [("unavailable", False, case.get("error") or "not driven")]
     d = case["drag"]
-    h24 = (case.get("horizons") or {}).get("24h") or {}
+    h48 = (case.get("horizons") or {}).get("48h") or {}
     ins = case.get("instruments") or {}
-    lat = d["latency"]
-    ratio = (lat["max"] / lat["median"]) if lat["median"] else 0.0
     checks = [
         ("instruments", all(ins.values()), "tx/src/long/paint=%s" % ins),
-        ("runway_24h>=150", h24.get("runway", -1) >= 150, "runway=%s" % h24.get("runway")),
+        ("runway_48h>=150", h48.get("runway", -1) >= 150, "runway=%s" % h48.get("runway")),
         ("swaps<=12", d["swaps"] <= 12, "swaps=%d" % d["swaps"]),
         # 6.3: bar is the drag-step count (moves - 1) — the mouse driver's pre-down
-        # positioning move emits no transform write in any era, and item 3 suspends
-        # mid-drag paint-flush writes on fast drags by design (G1: 0 encodes). Real tape
-        # starvation still fails loudly (see stage5_check.py [17], same instrument).
+        # positioning move emits no transform write, and the suspension design keeps
+        # fast drags at 0 mid-drag encodes. Real tape starvation still fails loudly.
         ("tapeTx>=moves-1", d["tapeTx"] >= d["moves"] - 1,
          "tx=%d moves=%d" % (d["tapeTx"], d["moves"])),
-        ("index_exact", d["finalIdx"] == d["expectedIdx"],
-         "idx=%d expected=%d" % (d["finalIdx"], d["expectedIdx"])),
         ("long<=50", d["longMax"] <= 50, "longtasks=%s" % d["longtasks"]),
-        # Absolute budgets: the modal step is ~one input frame and the 159 ms catastrophic
-        # stall is gone. (max/median is reported, but the ratio alone is pathological when the
-        # pre-fix median is itself high and the post-fix median drops to the input floor.)
-        ("median<=25ms", lat["median"] <= 25,
-         "median=%.2f p90=%.2f max=%.2f max/median=%.2f"
-         % (lat["median"], lat["p90"], lat["max"], ratio)),
-        ("max<=100ms", lat["max"] <= 100,
-         "max=%.2f median=%.2f" % (lat["max"], lat["median"])),
     ]
+    checks += _drag_checks("48h", d)
+    checks += _drag_checks("15d", case["drag15d"])
     return checks
 
 
 def print_table(cases):
     print("")
     print("SCRUB BENCH")
-    print("-" * 96)
-    print("%-14s %-16s %-9s %6s %9s %9s %8s %8s %7s %7s %8s %10s"
-          % ("label", "viewport", "mode", "dragMs", "win24", "tape24", "runway", "px/day",
-             "swaps", "paints", "tx/moves", "lat med/max"))
+    print("-" * 108)
+    print("%-14s %-16s %-9s %8s %8s %8s %9s %8s %8s %10s"
+          % ("label", "viewport", "mode", "px/day48", "p50_48h", "p90_48h",
+             "p50_15d", "p90_15d", "swaps", "tx/moves"))
     for c in cases:
-        h24 = (c.get("horizons") or {}).get("24h") or {}
+        h48 = (c.get("horizons") or {}).get("48h") or {}
         d = c.get("drag") or {}
-        lat = d.get("latency") or {}
-        print("%-14s %-16s %-9s %6s %9s %9s %8s %8s %7s %7s %8s %10s"
-              % (c["label"], c["viewport"], c["mode"], d.get("dragMs", "-"),
-                 h24.get("window", "-"), h24.get("tape", "-"), h24.get("runway", "-"),
-                 h24.get("px_per_day", "-"),
-                 d.get("swaps", "-"), d.get("mapPaints", "-"),
-                 ("%d/%d" % (d.get("tapeTx", 0), d.get("moves", 0))) if d else "-",
-                 ("%.1f/%.1f" % (lat.get("median", 0), lat.get("max", 0))) if lat else "-"))
+        d15 = c.get("drag15d") or {}
+        l48 = d.get("latency") or {}
+        l15 = d15.get("latency") or {}
+        print("%-14s %-16s %-9s %8s %8s %8s %9s %8s %8s %10s"
+              % (c["label"], c["viewport"], c["mode"],
+                 h48.get("px_per_day", "-"),
+                 l48.get("median", "-"), l48.get("p90", "-"),
+                 l15.get("median", "-"), l15.get("p90", "-"),
+                 d.get("swaps", "-"),
+                 ("%d/%d" % (d.get("tapeTx", 0), d.get("moves", 0))) if d else "-"))
     print("")
     n_pass = n_total = 0
     for c in cases:
@@ -413,7 +429,7 @@ def print_table(cases):
             n_pass += 1 if ok else 0
             print("%s %-18s %-16s %s"
                   % ("PASS" if ok else "FAIL", name, c["label"] + "/" + c["mode"], detail))
-    print("-" * 96)
+    print("-" * 108)
     print("VERDICT: %d/%d PASS" % (n_pass, n_total))
 
 
@@ -460,6 +476,15 @@ def main():
             srv.terminate()
 
     print_table(result["cases"])
+
+    # DONE-WHEN summary: p50/p90 of the pointermove latency, pooled per horizon.
+    for hz in ("48h", "15d"):
+        vals = [x for c in result["cases"] if c.get("available")
+                for x in (c["drags"][hz]["latencies"] if c.get("drags") else [])]
+        if vals:
+            print("SCRUB %s: p50=%.2f p90=%.2f (n=%d)"
+                  % (hz, statistics.median(vals), pct(vals, 90), len(vals)))
+
     (out / (args.label + ".json")).write_text(json.dumps(result, indent=2))
     print("=== JSON BEGIN ===")
     print(json.dumps(result, indent=2))
