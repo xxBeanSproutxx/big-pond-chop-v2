@@ -252,3 +252,22 @@ QA: scrub_bench=33/33 PASS pwa_check_local=11 ok / 0 FAIL
    is empty; it reads green only on the committed tree (same as P2). `scrub_bench.py` is
    commit-independent and was green pre-commit.
 
+
+### Orchestrator gate — P3 PASS (2026-09-24T18:38Z, independent verification)
+
+- **Scope**: `0017a8d` touches only allowed files (`worker/merge.mjs` new, `worker/compute.mjs` import
+  swap, `tests/weather.test.mjs`, `index.html`, `src/render.js`, receipts/progress); `guard.mjs`,
+  `wave-math.js`, `tables.js` untouched.
+- **Worker smoke on the final tree (orchestrator-run)**: `node worker/compute.mjs` → hrrr 55 / aifs
+  360 / ifs 240 non-null → merge 360 h → 146 frames, 12,150,120 B, 7.0 ms/frame, delay=on; then
+  `git checkout -- data/` restored. The refactored worker is production-clean.
+- **Independent strip probe** (orchestrator `/tmp/p3_probe.py`, fresh browser): `#weather-strip` exists;
+  **15 cells**; first cell `THU 24 | 57°/51° | 0.16 in | 25 mph`; detail line updates with the tape:
+  `Thursday 24 1 PM · 55°F · 0.03 in · gust 30 mph hrrr+ifs · src hrrr` → after drag →
+  `Thursday 24 8 PM · 56°F · 0.00 in · gust 22 mph hrrr+ifs · src hrrr`; drag 1 PM → 8 PM; zero console
+  errors. Screenshot reviewed (`/tmp/p3_strip.png`): clean layout, no overlap, °F/in/mph units.
+- **Suites**: `node --test` re-run → tests=6 pass=6 fail=0. QA (leaf-run, post-commit): scrub_bench
+  33/33, pwa_check 11/0.
+- **Accepted deviations**: 16 local-day buckets → strip shows the trailing 15 local days (run-day-on,
+  last partial — honest rendering of a 00Z-anchored window); `#map` "overlap" is the strip's parent by
+  design; `src-clean` gate needs the committed tree (re-ran post-commit, green).
