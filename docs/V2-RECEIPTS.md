@@ -78,3 +78,16 @@ Append per phase. Live/verified numbers only; deviations called out explicitly.
   (commit first, then rebase/push; commit-skip preserved). Alternative: `git stash`/`git stash pop` around the existing order.
 - Per the P1 contract ("Only stop-and-report for ... an impossible requirement, or a decision the spec doesn't cover") and repo AGENTS.md ("If the spec and the code disagree, STOP and report"), the run is stopped here rather than editing the frozen workflow.
 
+### Resolution — fix applied + verified by the orchestrator (2026-09-24T18:25Z)
+
+- Fix approved + applied: `00c979b` "fix(worker): commit data before pull --rebase (latent P0 bug)" — the exact 4-line reorder proposed above.
+- Dispatched run **36039133194** → **conclusion=success** (12 s). CI compute: `frames=146 delay=on cg=11 mph`, 6.8 ms/frame; **Commit data step green** (first successful data commit since data/ became tracked).
+- Live refresh VERIFIED (cache-busted fetch): `data/frames.json` → 146 frames, `generated_at=2026-09-24T18:08:23Z`; `wind.json` 200/37,240 B.
+- **Orchestrator delay-activity proof** (local, same-API-moment): `BPC_DELAY=0` vs `=1` → **122/146 frame files differ** — the delay is materially active in the artifacts, not a path that computes the same bytes. Perf: 2.7 (off) vs 6.9 (on) ms/frame.
+- Suites re-run by orchestrator on the final tree: `node --test` → tests=5 pass=5 fail=0.
+- Fixture review: parity/reef use bit-exact Buffer compares; delay fixture asserts old-equilibrium through t0+1 h, new equilibrium from t0+2 h, short-fetch cell moves at t0+1 h; mutation proof is real; null-grid has a positive control.
+- `src/delay-math.mjs` `cellCoarse()` mapping verified byte-equivalent to `src/wave-math.js` (rows/cols trunc ÷3 + clamps).
+- Ks deviation accepted: `deep_mud_basin` Ks=1.0012 is a non-shoaling deep basin in the frozen golden fixture; the test asserts shoaling cells in [0.93, 0.98] and all Ks within the v1 clamp — justified, not loosened.
+
+**P1 status: COMPLETE — orchestrator gate PASS.**
+
