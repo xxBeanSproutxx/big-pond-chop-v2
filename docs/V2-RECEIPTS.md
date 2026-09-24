@@ -91,3 +91,85 @@ Append per phase. Live/verified numbers only; deviations called out explicitly.
 
 **P1 status: COMPLETE — orchestrator gate PASS.**
 
+## P2 — full horizon + thin viewer
+
+Thin viewer over the live precomputed artifacts (worker untouched). Client fetches
+`data/frames.json` + `data/wind.json` (both `?cb=` cache-busted) and on-demand
+`data/<file>.bin`; dequantize `255` -> land/0 else `v/32` ft; the existing
+gather -> landMask -> smooth -> colorize -> paint pipeline and the LRU
+(`createFrameCache`) are reused unchanged. Client compute path deleted: `frameFor`
+is now an async loader, no `computeFrame`/Open-Meteo call in the render flow.
+
+- **Data layer**: bare-basename frame fetch (`data/f000.bin`), decoded grids in a
+  raw LRU (`RAW_FRAME_CACHE_MAX=8`), render cache still keyed by
+  `cacheKey(idx,pinIdx,W,H)`. Wind series rebuilt from `wind.json.hours` with
+  `wind.computeTeff(...,1)` + `wind.gammaToGrid(...,gamma)` so client math reads the
+  worker's own t_eff/bearing.
+- **Verdict / spot**: peak = argmax of the loaded grid -> Hs = v/32;
+  roller = `min(1.67*Hs, 0.78*d)` (`d` skips `LAND_U16`); H/L via a one-cell recompute
+  at the frame's wind sampled `frame_time - τ`, `τ = F_cell/cg`, `cg = 11 mph` — the
+  same `blendFetch` + `waveCore` v1 math, sampled at the arriving entry's own
+  direction (bit-matches `src/delay-math.mjs`; see verification below). Frozen ids
+  `#verdict #verdict-peak #comfort-chip #readout #card #card-close` and the wind
+  badges unchanged.
+- **Tape**: toggle `48 h | 15 day` (`#h-48h`/`#h-15d`, `data-horizon`, persisted +
+  `?h=`); 48h = first 49 hourly frames, 15d = all 146. Uniform per-frame px
+  (`framePx`; 330 px/day class for 15d), ticks at real frame times, continuous
+  frame-position scrub (no sub-frame snapping), `#play` steps 1 (48h) / 4 (15d).
+- **Data age**: `#data-age` on-map under the wind badge, e.g. `updated just now (HRRR)`
+  from `wind.json.fetched_at` + `models.wind_near`.
+- **Leaflet 1.9.4 self-hosted** at `public/vendor/leaflet/` (js+css+images); zero
+  `unpkg` refs remain in the client.
+- **PWA**: manifest name/short_name `Big Pond Chop v2`; `sw.js` `CACHE_NAME=bpc-cache-v2`,
+  shell precache incl. vendored Leaflet, `/data/` network-first with a query-less
+  cache fallback (live on open, offline still maps).
+- **Correctness cross-check** (`tmp/verify.mjs`, delay math ON): client one-cell
+  recompute vs `computeDelayedField` across frames 0/12/48/100/145 —
+  worst `|hlClient - hlWorker|` = **0.00e+0**; worst `|binMax - workerMax|` =
+  **0.01270 ft** (quantization step 0.03125, i.e. <= 0.5 LSB).
+
+### Evidence (local, 2026-09-24)
+
+```
+VIEWER: frames=146 scrub48_p50=16.60 scrub48_p90=17.10 scrub15d_p50=16.70 scrub15d_p90=17.00 (v1 bar 16.7 median)
+BUDGETS: full=12.196MB (12,196,001 B) frame=81.3KB (83,220 B) session=369.9KB (6 unique data responses)
+QA: scrub_bench=PASS 33/33 pwa_check_local=11 ok / 0 FAIL
+UNITS: node --test: tests=5 pass=5 fail=0
+NOPKG: unpkg refs in client = 0
+```
+
+- scrub_bench (`tools/qa/scrub_bench.py --label p2-final`): 33/33 PASS; per-move
+  latency pooled from 90 samples/horizon; `index_exact`, `tapeTx>=moves-1`,
+  `swaps<=12`, `longtasks<=50`, `runway_48h>=150` all green.
+- pwa_check (`tools/qa/pwa_check.py`, local subpath `/big-pond-chop`): 11 ok / 0 FAIL,
+  incl. precache 23/23, SW registered/controls, CDP installable, offline shell,
+  regression guard (parity/wind/render/ui all pass).
+- Budgets: full payload from disk (146 bins + frames.json + wind.json); single frame
+  83,220 B; session measured in a fresh Playwright context as the sum of unique
+  `/data/` responses during load + 15d toggle + one 30-step scrub + one spot tap.
+
+### Deviations / conflicts
+
+1. **wind.js fetcher strip vs frozen tests.** P2 asked to strip wind.js's Open-Meteo
+   fetchers while keeping "everything tests/wind.test.js imports". `tests/wind.test.js`
+   (frozen, `tests/**` out of scope) runs a live `ingest()` network call and a
+   `global.fetch` stub through `fetchWindTwo`; deleting them breaks 5/5. Resolution:
+   deleted the now-dead single-location `fetchWind`; retained `fetchWindTwo` + `ingest`
+   (unused by the client, commented in `src/wind.js`). The client has zero Open-Meteo
+   references (`index.html`, `src/render.js`, `src/ui.js` = 0).
+2. **Legacy horizon ids.** The frozen `render.test.js` markup gate still greps
+   `id="h-24h"` / `id="h-7d"`. Resolution: live controls are `#h-48h` / `#h-15d`; two
+   hidden, inert legacy buttons carry the old ids in `index.html`.
+3. **Horizon tokens.** URL/localStorage now emit `48h`/`15d`; `24h`/`7d` are still
+   accepted on read (bookmarks from older builds). `pxPerDay`/`playStep` accept both
+   token sets so the frozen pure-helper tests stay green.
+4. **`#data-age` placement.** Put on-map (under the wind badge) rather than in the
+   header: any extra span between `#pill-gust` and `#refresh` breaks the frozen 6.2
+   header markup gate.
+5. **Frame count.** Live run = 146 frames (A1 derives the count; P0 saw 147/146 at a
+   different run hour). Full payload 12.196 MB, under the 13 MB amended budget.
+6. **Session budget** (<= 2 MB) met at 369.9 KB; the drag-time suspension valve
+   (one paint / 1.2 s) bounds unique frame fetches during a scrub pass.
+
+**P2 status: COMPLETE — viewer + QA green locally.**
+
