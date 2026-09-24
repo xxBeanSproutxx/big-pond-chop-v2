@@ -271,3 +271,56 @@ QA: scrub_bench=33/33 PASS pwa_check_local=11 ok / 0 FAIL
 - **Accepted deviations**: 16 local-day buckets → strip shows the trailing 15 local days (run-day-on,
   last partial — honest rendering of a 00Z-anchored window); `#map` "overlap" is the strip's parent by
   design; `src-clean` gate needs the committed tree (re-ran post-commit, green).
+
+## P4 — docs + close-out
+
+Close-out pass: README rewrite, live screenshots, a fresh-clone smoke, a live `pwa_check.py`
+run against GitHub Pages, tag + release `v2.0.0`.
+
+- **Fresh-clone smoke** (`tmp/p4_clone_smoke.py`): `git clone` → `/tmp/bpc2-clone` (data/ = 148
+  committed files), served with `python3 -m http.server`, driven by Playwright at 390×844:
+  `map=True strip=True cells=15 frames_fetched=1 errors=0`; a real click at the map centre opened
+  the spot card (`Open water - N Basin | Depth 38.0 ft · Hs 2.4 ft · Hmax 4.0 ft · H/L 0.046`).
+  Result **ok**.
+- **LIVE pwa_check** (`tools/qa/pwa_check.py --live`) against
+  `https://xxbeansproutxx.github.io/big-pond-chop-v2/` → **13 ok / 0 FAIL**: precache 23/23,
+  manifest served/parsed + fields, URL math, icons, fresh load clean (0 console/page errors),
+  SW registered+activated, SW controls page, CDP installable (no errors), offline shell renders,
+  **frozen elements** 23/23 present + the 5 render-critical ids visible, deploy markers, and the
+  new **live data fetch**: `frames.json` 200 (`generated_at` age 0.5 h, 146 frames) +
+  `wind.json` 200 (`fetched_at` age 0.5 h). Check 11 (regression guard) skipped with a note —
+  it reads the local git tree (`src-clean` + node suites) and cannot run against Pages.
+- **README.md** rewritten: live link + screenshot on the first screen, how-it-works, local-dev
+  quickstart, data-artifact shapes, pointer to receipts / progress / spec.
+- **Screenshots** `docs/shots/`: `live-default.png`, `live-15day.png`, `live-strip.png`
+  (Playwright, LIVE site, 390×844) — 3 files, 464.8 KB total.
+- **Release**: docs committed → annotated tag `v2.0.0` → pushed → `gh release create`.
+
+### Evidence
+
+```
+CLONE: fresh-clone smoke=ok strip=yes errors=0
+LIVE: pwa_check live=13 ok / 0 FAIL installability=clean sw=ok offline=ok data-fetch=ok
+README: rewritten=yes quickstart-verified=yes
+SHOTS: docs/shots=3 files, 464.8 KB
+RELEASE: tag=v2.0.0 url=https://github.com/xxBeanSproutxx/big-pond-chop-v2/releases/tag/v2.0.0
+CRON: scheduled-run=not-yet
+COMMIT: docs commit pushed to origin/main, annotated tag v2.0.0 on it
+DEVIATIONS: pwa_check.py edited beyond a bare live flag — live mode now runs SW/offline + new
+  data-fetch/frozen checks (required by P4 req 2); worker deliberately not re-run (data/ is the
+  last CI artifact).
+```
+
+### Deviations / notes
+
+1. **`pwa_check.py` edit beyond a bare live-mode flag.** The file already had `--live`, but it
+   pointed at the v1 site and its live path deliberately skipped the SW / offline gates and had
+   no live data-fetch or frozen-element check — all of which P4 requirement 2 requires. Minimal
+   additive edit: retargeted `LIVE_ROOT` to the v2 site, ran checks 7/8/10 in live mode too, and
+   added check 13 (`check_live_data`: frames.json + wind.json 200 + a fresh timestamp within a
+   26 h ceiling) and check 14 (`check_frozen`: 23 frozen ids present, 5 render-critical ids
+   visible). Local default re-run unchanged at **11 ok / 0 FAIL**.
+2. **Worker not re-run** (P4 out-of-scope): `data/` in the tag is the CI-produced artifact from
+   the last successful dispatch (`generated_at 2026-09-24T18:08:23Z`). Quickstart verification
+   covered the serve / `node --test` (6/6) / QA commands; the `node worker/compute.mjs` dry-run
+   line is documented but intentionally not executed here.
