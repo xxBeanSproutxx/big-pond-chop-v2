@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { computeDelayedField, CG_MPH } from '../src/delay-math.mjs';
 import { rows, gustRows, decideModels, quantize, writeArtifacts } from './guard.mjs';
+import { mergeWeather } from './merge.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -79,15 +80,7 @@ async function main() {
   if (!decision.hrrrOk) console.error('[guard] HRRR all-null or failed -> AIFS-only, labels flip');
   if (!decision.ifsOk) console.error('[guard] IFS all-null or failed -> gusts null past HRRR window');
 
-  // ---- merge: AIFS base, HRRR overrides where non-null; IFS fills gaps in gusts ----
-  const byT = new Map();
-  for (const e of mid) byT.set(e.t, { ...e, src: 'aifs' });
-  for (const e of near) byT.set(e.t, { ...e, src: 'hrrr' });
-  if (decision.ifsOk) {
-    const gustAt = new Map(ifs.map((e) => [e.t, e.gustMph]));
-    for (const e of byT.values()) if (e.gustMph == null && gustAt.get(e.t) != null) e.gustMph = gustAt.get(e.t);
-  }
-  const series = [...byT.values()].sort((a, b) => stamp(a.t) - stamp(b.t));
+  const series = mergeWeather({ near, mid, ifs, ifsOk: decision.ifsOk });
 
   // t_eff persistence over the whole merged hourly series (dtH = 1), then sampled per frame.
   const ordered = series.map((e) => ({ ...e, bearingGrid: gammaToGrid(e.dirTrueDeg, gamma) }));

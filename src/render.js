@@ -251,6 +251,27 @@ function chicagoLocalIso(utcIso) {
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
+// P3 weather strip: one summary per America/Chicago calendar day from the merged hourly
+// series. hi/lo °F, daily precip total in INCHES (wire is mm), and max wind mph.
+function dailySummaries(entries) {
+  const map = new Map();
+  for (const e of (entries || [])) {
+    const date = chicagoLocalIso(e.time).slice(0, 10);
+    let d = map.get(date);
+    if (!d) { d = { date, hiF: -Infinity, loF: Infinity, precipMm: 0, maxWindMph: -Infinity }; map.set(date, d); }
+    const t = Number(e.tempF); if (Number.isFinite(t)) { if (t > d.hiF) d.hiF = t; if (t < d.loF) d.loF = t; }
+    const p = Number(e.precipMm); if (Number.isFinite(p)) d.precipMm += p;
+    const w = Number(e.speedMph); if (Number.isFinite(w) && w > d.maxWindMph) d.maxWindMph = w;
+  }
+  return [...map.values()].map((d) => ({
+    date: d.date,
+    hiF: Number.isFinite(d.hiF) ? d.hiF : null,
+    loF: Number.isFinite(d.loF) ? d.loF : null,
+    precipIn: d.precipMm / 25.4,
+    maxWindMph: Number.isFinite(d.maxWindMph) ? d.maxWindMph : null,
+  }));
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -478,6 +499,9 @@ async function mount(deps) {
   const h48Btn = document.getElementById('h-48h');
   const h15Btn = document.getElementById('h-15d');
   const dataAgeEl = document.getElementById('data-age');
+  const weatherDays = document.getElementById('weather-days');
+  const weatherDetail = document.getElementById('weather-detail');
+  const weatherLabels = document.getElementById('weather-labels');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
@@ -1029,6 +1053,7 @@ async function mount(deps) {
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
+    updateWeatherDetail(e);
     writeTape(pos == null ? idx : pos);
   }
 
@@ -1261,6 +1286,7 @@ async function mount(deps) {
     body.dataset.teffH = e.tEffH.toFixed(2);
     // During a drag the tape UI is owned by the continuous scrub path; only the map paints.
     if (!scrubbing) updateScrubUi(cur);
+    else updateWeatherDetail(e);
     // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
     // shore series is still ingested and kept on hand, it is simply not displayed.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
@@ -1423,6 +1449,57 @@ async function mount(deps) {
     dataAgeEl.textContent = `updated ${age} (${near})`;
   }
 
+  // ---- P3 weather strip ---------------------------------------------------------------
+  // 15 day-cells from the merged hourly series (hi/lo °F, precip in, max wind mph).
+  function renderWeatherCells() {
+    if (!weatherDays || !windSeries.length) return;
+    weatherDays.textContent = '';
+    // 360 h opens at 00Z (the prior evening in Chicago), so local grouping yields one
+    // leading partial bucket; the 15-day strip is the trailing 15 local days (run day on).
+    const days = dailySummaries(windSeries).slice(-15);
+    for (const d of days) {
+      const cell = document.createElement('div');
+      cell.className = 'wx-day';
+      cell.dataset.date = d.date;
+      const lines = [
+        ['wx-day-h', ui.dayLabel(d.date).toUpperCase()],
+        ['wx-day-t', `${d.hiF == null ? '—' : Math.round(d.hiF)}°/${d.loF == null ? '—' : Math.round(d.loF)}°`],
+        ['wx-day-p', `${d.precipIn.toFixed(2)} in`],
+        ['wx-day-w', d.maxWindMph == null ? '— mph' : `${Math.round(d.maxWindMph)} mph`],
+      ];
+      for (const [cls, text] of lines) {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = text;
+        cell.appendChild(span);
+      }
+      weatherDays.appendChild(cell);
+    }
+  }
+
+  // Honest provenance of the merged series (wind.json models), shown once.
+  function updateWeatherLabels() {
+    if (!weatherLabels || !windMeta) return;
+    const near = windMeta.wind_near || '—';
+    const mid = windMeta.wind_mid || '—';
+    weatherLabels.textContent = `wind ${near}/${mid} · gusts ${windMeta.gusts || 'none'}`;
+  }
+
+  // Selected-hour detail for the scrubbed frame: temp / precip (in) / gust + sources.
+  function updateWeatherDetail(e) {
+    if (!weatherDetail) return;
+    if (!e) { weatherDetail.textContent = '—'; return; }
+    const temp = Number.isFinite(e.tempF) ? `${Math.round(e.tempF)}°F` : '—';
+    const precip = Number.isFinite(e.precipMm) ? `${(e.precipMm / 25.4).toFixed(2)} in` : '—';
+    const gust = e.gustMph == null
+      ? 'gust —'
+      : `gust ${Math.round(e.gustMph)} mph ${(windMeta && windMeta.gusts) || ''}`.trim();
+    weatherDetail.textContent =
+      `${ui.dayLabel(e.time, true)} ${ui.formatPillTime(e.time)} · ${temp} · ${precip} · ${gust} · src ${e.src || '—'}`;
+    const sel = String(e.time || '').slice(0, 10);
+    for (const c of (weatherDays ? weatherDays.children : [])) c.classList.toggle('sel', c.dataset.date === sel);
+  }
+
   // Cache-bust the two index files so a fresh open never reads a stale manifest; the
   // per-frame .bin fetches stay plain (the SW caches them with a query-less key).
   async function loadForecast() {
@@ -1446,9 +1523,14 @@ async function mount(deps) {
         dirTrueDeg: w ? w.dirTrueDeg : 0,
         bearingGrid: w ? w.bearingGrid : 0,
         tEffH: w ? w.tEffH : 0,
+        tempF: w ? w.tempF : null,
+        precipMm: w ? w.precipMm : null,
+        src: w ? w.src : null,
       };
     });
     updateDataAge();
+    renderWeatherCells();
+    updateWeatherLabels();
   }
 
   // Re-slice the in-memory frame set for the active horizon (48h = first 49 hourly frames;
@@ -1543,5 +1625,5 @@ module.exports = {
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
   playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
-  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
+  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso, dailySummaries,
 };

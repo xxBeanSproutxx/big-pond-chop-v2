@@ -195,3 +195,60 @@ NOPKG: unpkg refs in client = 0
 - **Open item**: no scheduled (cron) worker run observed yet — GitHub activates new schedules with
   up to ~1 h delay; verify later.
 
+## P3 — weather strip + merge-policy test
+
+- **Worker seam**: the merge block moved out of `worker/compute.mjs` into `worker/merge.mjs`
+  as a pure `mergeWeather({ near, mid, ifs, ifsOk })` (no network/fs). Policy unchanged:
+  AIFS base → HRRR override where `t` matches → IFS fills `gustMph == null` only where IFS
+  has a value; output sorted ascending by `stamp(t)`. `compute.mjs` is a one-line import swap
+  (`const series = mergeWeather({ near, mid, ifs, ifsOk: decision.ifsOk })`).
+- **A/B proof** (`node worker/compute.mjs` before/after, delay ON, same run hour 18:29Z):
+  both runs `[plan] frames=146 delay=on cg=11 mph`, no `[guard]` rejection, exit 0; the two
+  `data/wind.json` files are **identical ignoring `fetched_at`** (360 h; `models={"wind_near":"hrrr",
+  "wind_mid":"aifs","gusts":"hrrr+ifs"}`; 0 differing hour rows). `data/` restored via `git checkout -- data/`.
+- **`tests/weather.test.mjs`** (new, ESM, assert-based — no framework): 6 merge checks + 1
+  daily-aggregation check = **7 assertions pass**. Locks: shared-hour HRRR win (src + speed/temp/
+  precip/gust, IFS must not overwrite an existing gust); IFS fills only null gusts (HRRR null row
+  fills, AIFS-only hour stays null); IFS-only hour adds no row; **gusts null beyond IFS coverage
+  (the +240 h boundary)**; `ifsOk=false` → zero fills; `near=[]` → all rows src `aifs`.
+- **Strip UI** (`index.html` + `src/render.js`): floating `#weather-strip` under the header band —
+  15 horizontally-scrollable day-cells (`THU 24`, hi/lo °F, precip in, max wind mph) + a
+  selected-hour `#weather-detail` (temp / precip / gust + `src`) that updates on scrub and horizon
+  toggle + a static `#weather-labels` provenance line from `wind.json.models`. Gust label uses
+  `models.gusts` (e.g. `gust 30 mph hrrr+ifs`); `gust —` when null. New pure helper
+  `render.dailySummaries` (Chicago-local day grouping) is covered by the test file.
+- **UNITS**: wire stays mph / °F / **mm**; the client converts precip **mm → in** (`×1/25.4`, 2 dp)
+  at render time — wire format unchanged.
+- **Evidence** (local, viewport 390×844 and 360×800, fresh profile):
+  - cells=15 · `scrollWidth == clientWidth` (390/390, 360/360 — no page scroll) · console errors 0.
+  - detail (frame 1 PM): `Thursday 24 1 PM · 55°F · 0.03 in · gust 30 mph hrrr+ifs · src hrrr`.
+  - labels: `wind hrrr/aifs · gusts hrrr+ifs`.
+  - no overlap with `#note #note-msg #track-days #timeline #track #track-tape #time-pill`
+    (`#map` is the strip's own parent, so that entry is trivially true by design). `#data-age`
+    repositioned to `header + 180px`, below the strip.
+  - screenshot `/tmp/p3_strip.png` (390×844).
+
+### Evidence
+
+```
+WEATHER: merge extracted=yes test=7 gust-null-beyond-ifs=locked
+AB: wind.json pre/post diff=identical guard=ok
+STRIP: cells=15 detail-sample="Thursday 24 1 PM · 55°F · 0.03 in · gust 30 mph hrrr+ifs · src hrrr" labels="wind hrrr/aifs · gusts hrrr+ifs"
+UNITS: wire=mph/°F/mm display=mph/°F/in (converted client-side)
+UNITS-TESTS: node --test: tests=6 pass=6 fail=0
+QA: scrub_bench=33/33 PASS pwa_check_local=11 ok / 0 FAIL
+```
+
+### Deviations / notes
+
+1. **15 cells vs 16 local buckets.** The 360 h series opens at `00Z`, which is the *previous*
+   evening in Chicago, so naive Chicago-local grouping yields 16 calendar buckets (a leading
+   ~5 h partial). The strip takes the trailing 15 local days (run day onward), matching the
+   15-day requirement; the last cell is necessarily partial where the forecast ends.
+2. **`#map` in the no-overlap list.** The strip is deliberately a child overlay of `#map`; every
+   other listed frozen element is clear (measured). `#map` itself cannot be "not overlapped" by
+   its own child.
+3. **`src-clean` gate sequencing.** `pwa_check.py` check 11 asserts `git status --porcelain src/`
+   is empty; it reads green only on the committed tree (same as P2). `scrub_bench.py` is
+   commit-independent and was green pre-commit.
+
