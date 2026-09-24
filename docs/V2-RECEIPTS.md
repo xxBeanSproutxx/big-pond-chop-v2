@@ -56,3 +56,25 @@ Append per phase. Live/verified numbers only; deviations called out explicitly.
 2. **Frame count 146 vs 147** (A1 says derive, never hardcode): 146 at run hour 18:00Z vs P0's 147 at 17:00Z — the 3-hourly tail ends on the last AIFS hour, which shifts with the run hour. Same plan rule; shape identical.
 3. **`node --test tests/`** directory positional still rejected by Node 22.23.1 (P0 deviation carries) — green via `node --test`.
 
+### Dispatch — BLOCKED (pre-existing P0 workflow bug)
+
+- Code pushed: `2d6c7cc` (`P1: delay-aware wind math + 4 fixtures`), `origin/main` up to date.
+- Dispatch: `gh workflow run worker.yml --ref main` → run **36038396851** https://github.com/xxBeanSproutxx/big-pond-chop-v2/actions/runs/36038396851 — **conclusion=failure** (exit 128).
+- The **Compute step succeeded**: `[plan] ... frames=146 delay=on cg=11 mph`, `[compute] 146 frames in 1.22s (8.3 ms/frame)`, `[write] frames=146 ... -> data/`. So delay-ON worker execution is proven on CI.
+- The **Commit data step failed**:
+  `error: cannot pull with rebase: You have unstaged changes.` / `error: Please commit or stash them.`
+- **Root cause**: `worker.yml` runs `git pull --rebase origin main` BEFORE `git add data/`. Since data/ became a *tracked* tree after P0's first data commit, the freshly computed files are unstaged modifications and Git refuses the rebase. P0's first dispatch (`36037293434`) only succeeded because data/ was not yet tracked at base `ce0ea6b`. Every run since (and every hourly cron) will fail identically. Not caused by the delay code.
+- **Live refresh NOT performed**; `data/frames.json generated_at` unchanged (still P0's `257dc18`).
+- **Proposed minimal fix (needs approval — `worker.yml` is outside the P1 allowed-file list)**:
+  ```sh
+  git config user.name "bpc-worker" && git config user.email "bpc-worker@users.noreply.github.com"
+  git add data/
+  if ! git diff --cached --quiet; then
+    git commit -m "data: refresh $(date -u +%Y-%m-%dT%H:%MZ)"
+    git pull --rebase origin main
+    git push
+  fi
+  ```
+  (commit first, then rebase/push; commit-skip preserved). Alternative: `git stash`/`git stash pop` around the existing order.
+- Per the P1 contract ("Only stop-and-report for ... an impossible requirement, or a decision the spec doesn't cover") and repo AGENTS.md ("If the spec and the code disagree, STOP and report"), the run is stopped here rather than editing the frozen workflow.
+
