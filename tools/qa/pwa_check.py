@@ -4,8 +4,9 @@
 Local mode (default) rehearses the GitHub Pages subpath exactly:
   /tmp/bpc-pages-root/big-pond-chop  ->  <repo>
 and drives http://127.0.0.1:PORT/big-pond-chop/index.html in headless
-Chromium. `--live` runs the HTTP/manifest/installability subset against the
-deployed site plus a cache-busted marker check.
+Chromium. `--live` drives the deployed v2 site instead (LIVE_ROOT) and runs the
+same browser gates plus a live data-fetch check; only the git-tree regression
+guard (11) is local-only and is skipped with a note.
 
 Every check prints `ok`/`FAIL` with the measured value. The harness always runs
 to completion, exits 0, and ends with `SUMMARY: N ok, M FAIL`.
@@ -13,6 +14,7 @@ to completion, exits 0, and ends with `SUMMARY: N ok, M FAIL`.
 Run: /home/reid/.hermes/hermes-agent/venv/bin/python tools/qa/pwa_check.py [--live]
 """
 import argparse
+import calendar
 import functools
 import http.server
 import json
@@ -36,8 +38,21 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGES_ROOT = Path("/tmp/bpc-pages-root")
-LIVE_ROOT = "https://xxbeansproutxx.github.io/big-pond-chop/"
+LIVE_ROOT = "https://xxbeansproutxx.github.io/big-pond-chop-v2/"
 APP_TITLE = "Big Pond Chop | Mille Lacs Lake Wave Forecast"
+# The hourly worker refreshes data/; this is only a sanity ceiling so a dead
+# pipeline fails the gate without tripping on a GitHub-scheduled run running late.
+LIVE_FRESH_HOURS = 26
+
+# Frozen client surface (P2/P3): every id must exist after boot; these must render.
+FROZEN_IDS = [
+    "map", "verdict", "verdict-peak", "verdict-range", "comfort-chip", "readout",
+    "card", "card-close", "track", "timeline", "track-days", "track-tape",
+    "time-pill", "play", "wind-badge", "wind-badge-text", "data-age",
+    "weather-strip", "weather-days", "weather-detail", "weather-labels",
+    "h-48h", "h-15d",
+]
+FROZEN_VISIBLE = ["map", "verdict", "timeline", "time-pill", "weather-strip"]
 
 RESULTS = []
 
@@ -369,6 +384,29 @@ def check_offline(ctx, page):
            "title='%s' map=%s" % (title, has_map))
 
 
+def check_frozen(page):
+    """The frozen viewer surface still exists (and the shell chrome renders)."""
+    state = page.evaluate(
+        """() => {
+             const vis = (id) => {
+               const el = document.getElementById(id);
+               if (!el) return false;
+               const r = el.getBoundingClientRect();
+               return r.width > 0 && r.height > 0;
+             };
+             const present = %s;
+             const visible = %s;
+             return {
+               missing: present.filter((id) => !document.getElementById(id)),
+               hidden: visible.filter((id) => !vis(id)),
+             };
+           }""" % (json.dumps(FROZEN_IDS), json.dumps(FROZEN_VISIBLE)))
+    record(14, "frozen elements", not state["missing"] and not state["hidden"],
+           "present=%d/%d missing=%s hidden=%s" % (
+               len(FROZEN_IDS) - len(state["missing"]), len(FROZEN_IDS),
+               state["missing"] or "none", state["hidden"] or "none"))
+
+
 def check_regression():
     r = subprocess.run(["git", "status", "--porcelain", "src/"], cwd=ROOT,
                        capture_output=True, text=True)
@@ -381,6 +419,32 @@ def check_regression():
         suite_ok = suite_ok and s.returncode == 0
     record(11, "regression guard", src_clean and suite_ok,
            "src-clean=%s suites=%s" % (src_clean, " ".join(tails)))
+
+
+def check_live_data(base):
+    """Live artifacts really serve, parse, and carry a fresh worker timestamp."""
+    now = time.time()
+    detail, ok = [], True
+    for name, key in (("frames.json", "generated_at"), ("wind.json", "fetched_at")):
+        code, _, body = http_get(urljoin(base, "data/" + name) + "?cb=%d" % int(now))
+        try:
+            parsed = json.loads(body)
+        except Exception:  # noqa: BLE001
+            parsed = None
+        stamp = parsed.get(key) if isinstance(parsed, dict) else None
+        try:
+            age_h = (now - calendar.timegm(time.strptime(stamp[:19], "%Y-%m-%dT%H:%M:%S"))) / 3600.0
+        except Exception:  # noqa: BLE001
+            age_h = None
+        n = len(parsed.get("frames", [])) if name == "frames.json" and isinstance(parsed, dict) else None
+        good = (code == 200 and isinstance(parsed, dict) and stamp is not None
+                and age_h is not None and age_h <= LIVE_FRESH_HOURS
+                and (n is None or n > 0))
+        ok = ok and good
+        detail.append("%s HTTP %d %s age=%.1fh%s" % (
+            name, code, key, age_h if age_h is not None else -1,
+            "" if n is None else " frames=%d" % n))
+    record(13, "live data fetch", ok, "; ".join(detail))
 
 
 def check_deploy_markers(base):
@@ -468,18 +532,20 @@ def main():
                         hangs += 1
                     else:
                         boot_times.append(bt)
-                    if not args.live:
-                        safe(7, "SW registered", check_sw, page, base)
-                        safe(8, "SW controls page", check_sw_controls, page)
+                    safe(7, "SW registered", check_sw, page, base)
+                    safe(8, "SW controls page", check_sw_controls, page)
                     safe(9, "CDP installable", check_cdp, ctx, page)
-                    if not args.live:
-                        safe(10, "offline shell", check_offline, ctx, page)
+                    safe(10, "offline shell", check_offline, ctx, page)
+                    if args.live:
+                        safe(14, "frozen elements", check_frozen, page)
                 finally:
                     ctx.close()
             browser.close()
 
         if args.live:
             safe(12, "deploy markers", check_deploy_markers, base)
+            safe(13, "live data fetch", check_live_data, base)
+            print("[11] regression guard        skip  local-only (git tree: src-clean + node suites)")
         else:
             safe(11, "regression guard", check_regression)
     finally:
