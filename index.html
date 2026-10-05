@@ -168,16 +168,7 @@
     user-select: none; -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   }
-  /* P4 weather drawer: collapsed 28px row, expanded scrollable day list. */
-  #wx-drawer { display: flex; align-items: center; gap: 6px; height: 28px; min-height: 44px;
-               padding: 4px 6px; color: #9fc3dd; font-size: 12px; white-space: nowrap;
-               overflow: hidden; cursor: pointer; }
-  #wx-rows { max-height: min(40vh, 320px); overflow-y: auto; display: flex; flex-direction: column;
-             gap: 1px; padding: 2px 6px; }
-  #wx-rows:not([hidden]) + #wx-drawer { /* expanded: drawer stays visible at top */ }
-  .wx-row { font-size: 11px; color: #cfe3f2; padding: 2px 4px; font-variant-numeric: tabular-nums;
-            white-space: nowrap; }
-  .wx-row.sel { background: rgba(255,209,102,.15); color: #ffd166; }
+  /* P4 weather drawer CSS removed in Phase 5. */
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 62px; display: flex; align-items: stretch; }
@@ -224,15 +215,24 @@
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
   /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
      line-box vertically centres the 12px type in the 40-60 px band. */
-  .day-wind { position: absolute; top: 40px; transform: translateX(-50%);
-              font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
-              text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
-              white-space: nowrap; font-variant-numeric: tabular-nums;
-              height: 20px; line-height: 20px; width: 20px; text-align: center; }
+.day-wind { position: absolute; top: 44px; transform: translateX(-50%);
+               font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
+               text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
+               white-space: nowrap; font-variant-numeric: tabular-nums;
+               height: 16px; line-height: 16px; width: 20px; text-align: center; }
   /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
      painted behind the numbers (DOM order). */
-  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 20px;
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 16px;
               border-radius: 3px; }
+  /* Phase 5: precip line graph SVG layer above the wind ribbon. */
+  .day-precip { position: absolute; left: 3px; right: 3px; bottom: 20px; height: 14px;
+                pointer-events: none; overflow: hidden; }
+  .day-precip svg { display: block; width: 100%; height: 100%; }
+  /* Phase 5: temp labels at 3-hourly anchors, same style as wind labels (sibling rows). */
+  .day-temp { position: absolute; top: 22px; transform: translateX(-50%);
+              font: 700 11px/1 system-ui, -apple-system, sans-serif;
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              height: 14px; line-height: 14px; width: 20px; text-align: center; }
   /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
      #map whose bottom edge IS the deck's top) and trimmed to 134px so it ends at
      x = 142 on a 360px viewport — clearing the amber reticle's left edge (x = 146)
@@ -352,11 +352,6 @@
     </div>
   </div>
   <footer id="deck">
-    <div id="wx-drawer" class="deck-row" role="button" tabindex="0" aria-expanded="false">
-      <span id="wx-chevron" aria-hidden="true">▶</span>
-      <span id="wx-today"></span>
-    </div>
-    <div id="wx-rows" class="deck-row" hidden></div>
     <div class="deck-row deck-track" id="track"
          role="slider" tabindex="0" aria-label="Time scrubber"
          aria-valuemin="0" aria-valuemax="95" aria-valuenow="0" aria-valuetext="—">

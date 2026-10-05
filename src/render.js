@@ -215,6 +215,23 @@ function tickWinds(entries, start, end) {
   return out;
 }
 
+// Phase 5: temp label color, wind-label style, heat-mapped.
+function tempLabelColor(tempF) {
+  if (!Number.isFinite(tempF)) return 'rgb(148,163,184)';
+  const t = Math.max(20, Math.min(100, tempF));
+  // icy blue(≤40) → neutral(60s) → warm amber(≥85)
+  const stops = [
+    [20, 0x60, 0xa0, 0xd0], [40, 0x80, 0xb8, 0xd8],
+    [60, 0xc0, 0xc0, 0xc0], [75, 0xd0, 0x90, 0x50],
+    [85, 0xd0, 0x60, 0x40], [100, 0xe0, 0x40, 0x30],
+  ];
+  let i = 0;
+  while (i < stops.length - 2 && t > stops[i + 1][0]) i++;
+  const a = stops[i], b = stops[i + 1];
+  const f = (t - a[0]) / (b[0] - a[0]);
+  return `rgb(${Math.round(a[1] + f * (b[1] - a[1]))},${Math.round(a[2] + f * (b[2] - a[2]))},${Math.round(a[3] + f * (b[3] - a[3]))})`;
+}
+
 // ---- v2 precomputed-frame helpers (pure) ----
 // Zero-order hold: index of the last wind series entry with tMs <= queryMs (0 if before
 // the start). Mirrors src/delay-math.mjs sampleIndex (the browser cannot import the .mjs).
@@ -251,29 +268,7 @@ function chicagoLocalIso(utcIso) {
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
-// P4 weather drawer: one summary per America/Chicago calendar day from the merged hourly
-// series. hi/lo °F, daily precip total in INCHES (wire is mm), min/max wind mph, and
-// direction at max wind.
-function dailySummaries(entries) {
-  const map = new Map();
-  for (const e of (entries || [])) {
-    const date = chicagoLocalIso(e.time).slice(0, 10);
-    let d = map.get(date);
-    if (!d) { d = { date, hiF: -Infinity, loF: Infinity, precipMm: 0, maxWindMph: -Infinity, minWindMph: Infinity, peakDirDeg: null }; map.set(date, d); }
-    const t = Number(e.tempF); if (Number.isFinite(t)) { if (t > d.hiF) d.hiF = t; if (t < d.loF) d.loF = t; }
-    const p = Number(e.precipMm); if (Number.isFinite(p)) d.precipMm += p;
-    const w = Number(e.speedMph); if (Number.isFinite(w)) { if (w > d.maxWindMph) { d.maxWindMph = w; d.peakDirDeg = Number(e.dirTrueDeg); } if (w < d.minWindMph) d.minWindMph = w; }
-  }
-  return [...map.values()].map((d) => ({
-    date: d.date,
-    hiF: Number.isFinite(d.hiF) ? d.hiF : null,
-    loF: Number.isFinite(d.loF) ? d.loF : null,
-    precipIn: d.precipMm / 25.4,
-    maxWindMph: Number.isFinite(d.maxWindMph) ? d.maxWindMph : null,
-    minWindMph: Number.isFinite(d.minWindMph) ? d.minWindMph : null,
-    peakDirDeg: d.peakDirDeg,
-  }));
-}
+
 
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
@@ -516,10 +511,7 @@ async function mount(deps) {
   const card = document.getElementById('card');
   const mapEl = document.getElementById('map');
   const readout = document.getElementById('readout');
-  const wxDrawer = document.getElementById('wx-drawer');
-  const wxChevron = document.getElementById('wx-chevron');
-  const wxToday = document.getElementById('wx-today');
-  const wxRows = document.getElementById('wx-rows');
+  
   // Panel chrome must not double as a map tap: without this, clicking the card's X (or the
   // wind badge) also fires Leaflet's map click, which re-drops the pin and reopens the card.
   ['click', 'mousedown', 'touchstart', 'dblclick'].forEach((t) => {
@@ -1043,6 +1035,56 @@ async function mount(deps) {
         wind.textContent = String(Math.round(e.speedMph));
         block.appendChild(wind);
       }
+      // Phase 5: precip line graph (Windy-style SVG) just above the wind ribbon.
+      const svgWrap = document.createElement('div');
+      svgWrap.className = 'day-precip';
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('width', String(Math.round(w)));
+      svg.setAttribute('height', '14');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 14`);
+      svg.setAttribute('aria-hidden', 'true');
+      const pts = [];
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const x = (i - start) * pxf;
+        const p = Number.isFinite(e.precipMm) ? Math.min(4, e.precipMm) : 0;
+        pts.push(`${x},${14 - (p / 4) * 12}`);
+      }
+      if (pts.length > 1) {
+        const fill = document.createElementNS(ns, 'polygon');
+        fill.setAttribute('points', `0,14 ${pts.join(' ')} ${Math.round(w)},14`);
+        fill.setAttribute('fill', 'rgba(100,180,220,.2)');
+        svg.appendChild(fill);
+        const line = document.createElementNS(ns, 'polyline');
+        line.setAttribute('points', pts.join(' '));
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', '#6ba8d4');
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(line);
+      }
+      svgWrap.appendChild(svg);
+      block.appendChild(svgWrap);
+      // Phase 5: three-hourly temp labels above the precip layer.
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
+        if (mm !== 0 || hh % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
+        const temp = document.createElement('span');
+        temp.className = 'day-temp';
+        if (i === start) {
+          temp.style.left = '3px';
+          temp.style.transform = 'none';
+        } else {
+          temp.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
+        }
+        temp.textContent = String(Math.round(e.tempF));
+        temp.style.color = tempLabelColor(e.tempF);
+        block.appendChild(temp);
+      }
       trackDays.appendChild(block);
     }
   }
@@ -1296,7 +1338,6 @@ async function mount(deps) {
     body.dataset.teffH = e.tEffH.toFixed(2);
     // During a drag the tape UI is owned by the continuous scrub path; only the map paints.
     if (!scrubbing) updateScrubUi(cur);
-    highlightWxDay(e.time.slice(0, 10));
     // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
     // shore series is still ingested and kept on hand, it is simply not displayed.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
@@ -1414,17 +1455,7 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
-  if (wxDrawer) {
-    wxDrawer.addEventListener('click', () => {
-      const expanded = wxDrawer.getAttribute('aria-expanded') === 'true';
-      wxDrawer.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-      wxChevron.textContent = expanded ? '▶' : '▼';
-      wxRows.hidden = expanded;
-    });
-  }
-  // 6.2: the ? explainer and its popover were removed with the shore pill — the two
-  // badges are self-labelling, so there is no popover to open, close, focus or trap.
-  // A width change moves the rail mapping: re-place the hairline/playhead + day label.
+  // Cache-bust the two index files
   function resyncTrackUi() {
     updateScrubUi(cur);
     placeNowTick();
@@ -1466,38 +1497,6 @@ async function mount(deps) {
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 
-  // P4 weather drawer: 15 daily summary rows inside the deck.
-  function renderWeatherDrawer() {
-    if (!wxToday || !wxRows || !windSeries.length) return;
-    const days = dailySummaries(windSeries).slice(-15);
-    wxToday.textContent = formatWxDay(days.length ? days[days.length - 1] : null, false);
-    wxRows.textContent = '';
-    for (const d of days) {
-      const row = document.createElement('div');
-      row.className = 'wx-row';
-      row.dataset.date = d.date;
-      row.textContent = formatWxDay(d, true);
-      wxRows.appendChild(row);
-    }
-  }
-
-  function formatWxDay(d, withDate) {
-    if (!d) return '—';
-    const dayLbl = withDate ? `${ui.dayLabel(d.date)} ` : '';
-    const windDir = d.peakDirDeg != null && d.maxWindMph != null
-      ? `${ui.compass(d.peakDirDeg, d.maxWindMph).sector} ${Math.round(d.minWindMph)}–${Math.round(d.maxWindMph)} mph`
-      : '— mph';
-    const hi = d.hiF != null ? `${Math.round(d.hiF)}°` : '—°';
-    const lo = d.loF != null ? `${Math.round(d.loF)}°` : '—°';
-    const p = `${d.precipIn.toFixed(2)} in`;
-    return `${dayLbl}${windDir} · ${p} · ${hi}/${lo}`;
-  }
-
-  function highlightWxDay(dateStr) {
-    if (!wxRows) return;
-    for (const c of wxRows.children) c.classList.toggle('sel', c.dataset.date === dateStr);
-  }
-
   // Cache-bust the two index files so a fresh open never reads a stale manifest; the
   // per-frame .bin fetches stay plain (the SW caches them with a query-less key).
   async function loadForecast() {
@@ -1527,7 +1526,6 @@ async function mount(deps) {
       };
     });
     updateDataAge();
-    renderWeatherDrawer();
   }
 
   // Re-slice the in-memory frame set for the active horizon (24h = first 25 hourly frames;
@@ -1623,5 +1621,5 @@ module.exports = {
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
   playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
-  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso, dailySummaries,
+  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
 };

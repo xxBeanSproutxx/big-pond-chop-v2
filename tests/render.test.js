@@ -116,16 +116,18 @@ check('basemap is muted + keyless (no watermarked provider)', () => {
   assert.strictEqual(PLAY_INTERVAL_MS, 333);
   console.log(`       ${TILE_URL} @ opacity ${OVERLAY_OPACITY}`);
 });
-check('stage-5m deck markup: single full-height tape, weather drawer present', () => {
+check('stage-5m deck markup: single full-height tape, weather drawer removed in v5', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(/<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">/.test(html),
     'viewport meta must drop maximum-scale/user-scalable and add viewport-fit=cover');
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'wx-drawer', 'wx-rows', 'wx-chevron', 'wx-today'];
+    'track-label', 'now-tick', 'time-pill'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
-  assert.ok(/id="wx-rows"[^>]* hidden/.test(html), '#wx-rows must be hidden by default');
+  const removedP4 = ['wx-drawer', 'wx-rows', 'wx-chevron', 'wx-today'];
+  for (const id of removedP4) assert.ok(!html.includes(`id="${id}"`), `#${id} must be gone (Phase 5)`);
+  assert.ok(!/\.wx-row/.test(html), '.wx-row CSS must be gone (Phase 5)');
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
   for (const id of removed) assert.ok(!html.includes(id), `#${id} must be gone (5F)`);
@@ -136,6 +138,11 @@ check('stage-5m deck markup: single full-height tape, weather drawer present', (
   assert.ok(!/\.deck-wind\b/.test(html), '.deck-wind CSS must be gone (5M)');
   assert.ok(!footer[1].includes('ramp-bar') && !footer[1].includes('ramp-ticks'),
     'the ramp row must be out of the deck (5L)');
+  // Phase 5: new CSS classes for precip and temp layers in the deck.
+  assert.ok(/\.day-precip/.test(html), '.day-precip CSS must be present (Phase 5)');
+  assert.ok(/\.day-temp/.test(html), '.day-temp CSS must be present (Phase 5)');
+  assert.ok(/tempLabelColor/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'render.js'), 'utf8')),
+    'tempLabelColor function must be in render.js (Phase 5)');
   const map = /<div id="map">([\s\S]*?)<footer id="deck">/.exec(html);
   assert.ok(map, 'missing <div id="map">');
   for (const id of ['legend-card', 'legend-card-bar', 'legend-card-ticks']) {
