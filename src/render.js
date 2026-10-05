@@ -991,26 +991,14 @@ async function mount(deps) {
       }
       head.textContent = ui.dayLabel(parts[k].date, true);
       block.appendChild(head);
-      // v2: ticks live at real frame times. Frames are hourly (48h) or 3-hourly (15d),
-      // so a 3h tick exists only where a frame's local minute is :00 and hour % 3 === 0.
+      // Phase 6: the 3-hourly tick labels (.day-sub) were deleted — their row became
+      // the temp lane, and printing both stacked hour numbers on temps (Reid: "sitting
+      // right on top of each other"). Temps + day heads carry the time axis now.
       const hourly = [];
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
         const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
-        const onTick = mm === 0 && hh % 3 === 0;
-        if (onTick) {
-          const sub = document.createElement('span');
-          sub.className = 'day-sub' + (hh === 0 ? ' edge' : '');
-          if (i === start) {
-            sub.style.left = '3px';
-            sub.style.transform = 'none';
-          } else {
-            sub.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
-          }
-          sub.textContent = String((hh % 12) || 12).padStart(2, '0');
-          block.appendChild(sub);
-        }
         if (mm === 0 && Number.isFinite(e.speedMph)) hourly.push(e.speedMph);
       }
       const heat = document.createElement('div');
@@ -1493,7 +1481,7 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.4`;
+    dataAgeEl.textContent = `updated ${text} · ui v2.5`;
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 

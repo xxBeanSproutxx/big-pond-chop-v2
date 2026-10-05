@@ -209,10 +209,7 @@
   .day-block + .day-block { border-left: 1px solid #4a5568; }
   .day-head { position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
               font: 600 12px/1 system-ui, -apple-system, sans-serif; color: #e8f0f7; white-space: nowrap; }
-  .day-sub { position: absolute; top: 20px; transform: translateX(-50%);
-             font: 11px/1 system-ui, -apple-system, sans-serif; color: #94a3b8; white-space: nowrap;
-             font-variant-numeric: tabular-nums; width: 20px; text-align: center; }
-  .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
+  /* Phase 6: .day-sub (3-hourly tick labels) deleted — temp row owns this lane now. */
   /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
      line-box vertically centres the 12px type in the 40-60 px band. */
   /* Phase 6 deck lanes (88px total): day-head 0-14 · temp 18-30 · precip 34-52 · wind+heat 54-86. */
