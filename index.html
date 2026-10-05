@@ -155,7 +155,7 @@
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
   /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
-  :root { --deck-h: 62px; }
+  :root { --deck-h: 88px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
@@ -171,7 +171,7 @@
   /* P4 weather drawer CSS removed in Phase 5. */
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
-  .deck-track{ height: 62px; display: flex; align-items: stretch; }
+  .deck-track{ height: 88px; display: flex; align-items: stretch; }
   /* 6.2: the horizon toggle OWNS the top-left map corner now that the zoom stack is
      docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
      zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
@@ -181,7 +181,7 @@
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
   /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 62px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 88px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
 #track-tape { position: absolute; left: 0; top: 0; height: 100%;
@@ -215,21 +215,25 @@
   .day-sub.edge { color: #e8f0f7; } /* midnight/boundary ticks read stronger than the 3 h row */
   /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
      line-box vertically centres the 12px type in the 40-60 px band. */
-.day-wind { position: absolute; top: 44px; transform: translateX(-50%);
+  /* Phase 6 deck lanes (88px total): day-head 0-14 · temp 18-30 · precip 34-52 · wind+heat 54-86. */
+  .day-wind { position: absolute; top: 68px; transform: translateX(-50%);
                font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
                text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
                white-space: nowrap; font-variant-numeric: tabular-nums;
                height: 16px; line-height: 16px; width: 20px; text-align: center; }
   /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
      painted behind the numbers (DOM order). */
-  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 16px;
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 18px;
               border-radius: 3px; }
-  /* Phase 5: precip line graph SVG layer above the wind ribbon. */
-  .day-precip { position: absolute; left: 3px; right: 3px; bottom: 20px; height: 14px;
-                pointer-events: none; overflow: hidden; }
+  /* Phase 5/6: precip line graph SVG layer above the wind ribbon, with an always-on
+     baseline hairline so a dry day reads as a lane, not a void. */
+  .day-precip { position: absolute; left: 3px; right: 3px; bottom: 24px; height: 18px;
+                pointer-events: none; overflow: hidden; opacity: .92; }
+  .day-precip::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+                height: 1px; background: rgba(107, 168, 212, .38); }
   .day-precip svg { display: block; width: 100%; height: 100%; }
   /* Phase 5: temp labels at 3-hourly anchors, same style as wind labels (sibling rows). */
-  .day-temp { position: absolute; top: 22px; transform: translateX(-50%);
+  .day-temp { position: absolute; top: 18px; transform: translateX(-50%);
               font: 700 11px/1 system-ui, -apple-system, sans-serif;
               white-space: nowrap; font-variant-numeric: tabular-nums;
               height: 14px; line-height: 14px; width: 20px; text-align: center; }
