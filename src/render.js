@@ -1041,8 +1041,8 @@ async function mount(deps) {
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
       svg.setAttribute('width', String(Math.round(w)));
-      svg.setAttribute('height', '14');
-      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 14`);
+      svg.setAttribute('height', '18');
+      svg.setAttribute('viewBox', `0 0 ${Math.round(w)} 18`);
       svg.setAttribute('aria-hidden', 'true');
       const pts = [];
       for (let i = start; i < end; i++) {
@@ -1050,11 +1050,11 @@ async function mount(deps) {
         if (!e) continue;
         const x = (i - start) * pxf;
         const p = Number.isFinite(e.precipMm) ? Math.min(4, e.precipMm) : 0;
-        pts.push(`${x},${14 - (p / 4) * 12}`);
+        pts.push(`${x},${18 - (p / 4) * 16}`);
       }
       if (pts.length > 1) {
         const fill = document.createElementNS(ns, 'polygon');
-        fill.setAttribute('points', `0,14 ${pts.join(' ')} ${Math.round(w)},14`);
+        fill.setAttribute('points', `0,18 ${pts.join(' ')} ${Math.round(w)},18`);
         fill.setAttribute('fill', 'rgba(100,180,220,.2)');
         svg.appendChild(fill);
         const line = document.createElementNS(ns, 'polyline');
