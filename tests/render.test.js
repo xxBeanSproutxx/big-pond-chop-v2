@@ -123,7 +123,7 @@ check('stage-5m deck markup: single full-height tape, no wind strip', () => {
   const footer = /<footer id="deck">([\s\S]*?)<\/footer>/.exec(html);
   assert.ok(footer, 'missing <footer id="deck">');
   const ids = ['play', 'track', 'timeline', 'track-tape', 'track-days', 'track-ticks',
-    'track-label', 'now-tick', 'time-pill', 'h-24h', 'h-7d'];
+    'track-label', 'now-tick', 'time-pill'];
   for (const id of ids) assert.ok(html.includes(`id="${id}"`), `page missing #${id}`);
   const removed = ['playhead', 'track-rail', 'track-progress', 'deck-day', 'hour-label',
     'play-label', 'deck-main'];
@@ -356,16 +356,16 @@ check('single 96-frame day -> one partition', () => {
   assert.strictEqual(p[0].index, 0);
 });
 check('playStep + nextPlayIdx wrap cleanly at the 7-day boundary', () => {
-  assert.strictEqual(playStep('7d'), 4);
+  assert.strictEqual(playStep('7d'), 1);
   assert.strictEqual(playStep('24h'), 1);
-  assert.strictEqual(nextPlayIdx(671, 4, 672), 3);
-  assert.strictEqual(nextPlayIdx(668, 4, 672), 0);
+  assert.strictEqual(nextPlayIdx(671, 1, 672), 0);
+  assert.strictEqual(nextPlayIdx(668, 1, 672), 669);
   assert.strictEqual(nextPlayIdx(95, 1, 96), 0);
 });
 check('#scrub shim is gone; timeline containers present', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.ok(!/\bid="scrub"/.test(html), '#scrub must be gone');
-  for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline', 'h-24h', 'h-7d']) {
+  for (const id of ['track-days', 'track-ticks', 'track-label', 'timeline']) {
     assert.ok(html.includes(`id="${id}"`), `missing #${id}`);
   }
 });

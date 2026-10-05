@@ -103,35 +103,10 @@
           font-variant-numeric: tabular-nums; line-height: 1.2; }
   #pill-lake .unit { color: #f8fafc; }
   #dot { flex: 0 0 auto; margin: 0; font-size: 11px; color: #94a3b8; line-height: 1; }
-  /* v2 data provenance: "updated 2h ago (HRRR)" from wind.json fetched_at + model pin.
-     Docked under the on-map wind badge, right-aligned, so it never squeezes the header. */
-  #data-age { position: absolute; top: calc(var(--header-h) + 180px); right: 12px; z-index: 500;
-              font-size: 10px; color: #9fc3dd; white-space: nowrap;
-              font-variant-numeric: tabular-nums; pointer-events: none; }
-  /* P3 weather strip: floating 15-day band under the header, above the horizon/wind badges.
-     The day row scrolls horizontally (15 cells don't fit 360-390 px); the detail row follows
-     the scrubbed hour. z-index 500 sits with the other map overlays (header 1001, #note 600). */
-  #weather-strip { position: absolute; top: calc(var(--header-h) + 56px); left: 8px; right: 8px;
-                   z-index: 500; overflow: hidden; padding: 6px 8px;
-                   background: rgba(16,38,58,.85); border: 1px solid rgba(255,255,255,.1);
-                   border-radius: 10px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-  @supports not (backdrop-filter: blur(1px)) { #weather-strip { background: #10263a; } }
-  #weather-days { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
-                  scrollbar-width: none; }
-  #weather-days::-webkit-scrollbar { display: none; }
-  .wx-day { flex: 0 0 auto; min-width: 56px; display: flex; flex-direction: column;
-            align-items: center; gap: 1px; padding: 2px 4px; border-radius: 6px;
-            background: rgba(255,255,255,.04); }
-  .wx-day.sel { background: rgba(255,209,102,.22); outline: 1px solid #ffd166; }
-  .wx-day-h { font-size: 10px; font-weight: 700; color: #e8f0f7; white-space: nowrap; }
-  .wx-day-t { font-size: 11px; font-weight: 700; color: #f8fafc; white-space: nowrap;
+  /* v2 data provenance: "updated 2h ago" in the header band, right-aligned.
+      Warn-tint (#ea580c) when age > 3h. */
+  #data-age { font-size: 10px; color: #9fc3dd; white-space: nowrap;
               font-variant-numeric: tabular-nums; }
-  .wx-day-p { font-size: 9px; color: #9fc3dd; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .wx-day-w { font-size: 9px; color: #ffd166; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  #weather-detail { margin-top: 4px; font-size: 11px; color: #cfe3f2; white-space: nowrap;
-                    overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-  #weather-labels { margin-top: 1px; font-size: 9px; color: #9fc3dd; white-space: nowrap;
-                    overflow: hidden; text-overflow: ellipsis; }
   /* 6.2: #help and #help-pop are gone (with their listeners) — the badges are
      self-labelling, so the row needs no explainer control. */
 
@@ -200,7 +175,7 @@
      docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
      zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
   #horizon { position: absolute; top: calc(var(--header-h) + 12px); left: 12px; z-index: 1000; display: flex; gap: 4px; }
-  #horizon button { height: 28px; min-height: 28px; padding: 0 9px; background: rgba(16,38,58,.85);
+  #horizon button { height: 44px; min-height: 44px; padding: 0 12px; background: rgba(16,38,58,.85);
                     color: #e8f0f7; border: 1px solid #33506b; border-radius: 14px;
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
@@ -208,8 +183,8 @@
   #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 62px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
-  #track-tape { position: absolute; left: 0; top: 0; height: 100%;
-                transition: transform .32s linear; will-change: transform; }
+#track-tape { position: absolute; left: 0; top: 0; height: 100%;
+                 will-change: transform; }
   #now-tick       { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd166;
                     box-shadow: 0 0 0 1px rgba(13,27,42,.6); pointer-events: none; }
   /* Amber pill cursor IS the permanent time indicator, anchored to the centre of the
@@ -278,15 +253,15 @@
           font-size: 13px; align-items: center; gap: 10px; }
   #note-retry { background: #ffd7d7; color: #5a1f1f; border: 0; border-radius: 5px;
                 padding: 6px 10px; font-size: 12px; font-weight: 700; touch-action: manipulation; }
-  #card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
-          background: #ffffff; color: #0d1b2a; border: 1px solid #cbd5e1;
-          border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
+#card { position: absolute; left: 10px; bottom: 140px; z-index: 550; min-width: 230px;
+           background: #10263a; color: #e8f0f7; border: 1px solid #33506b;
+           border-radius: 8px; padding: 8px 46px 8px 10px; font-size: 12px;
+           box-shadow: 0 2px 8px rgba(0,0,0,.3); font-variant-numeric: tabular-nums; }
   #card .card-line { margin: 1px 0; }
   #card .card-line b { display: inline-block; min-width: 3.6em; }
-  #card-close { position: absolute; right: 2px; top: 2px; width: 48px; height: 48px;
-                border: 0; background: transparent; color: #0d1b2a; font-size: 20px;
-                line-height: 1; cursor: pointer; touch-action: manipulation; }
+#card-close { position: absolute; right: 2px; top: 2px; width: 48px; height: 48px;
+                 border: 0; background: transparent; color: #facc15; font-size: 20px;
+                 line-height: 1; cursor: pointer; touch-action: manipulation; }
   body.reduced-motion * { transition: none !important; animation: none !important; }
   /* Muted basemap: CARTO's keyless tiles now stamp "API KEY REQUIRED", so the tile pane
      itself is desaturated instead — kills the green/wetland clash under the wave overlay. */
@@ -314,17 +289,18 @@
         <div id="verdict-range">—</div>
       </div>
       <span id="comfort-chip" class="tier-green">Fishable · Light Chop</span>
-      <div id="subrow">
-        <div id="verdict-peak"></div>
-        <div id="secondary">
-          <div id="three" role="group" aria-label="Wind">
-            <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
-            <span id="dot" aria-hidden="true">·</span>
-            <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">24</span><span id="gust-u">Gust</span></span>
+<div id="subrow">
+          <div id="verdict-peak"></div>
+          <div id="secondary">
+            <div id="three" role="group" aria-label="Wind">
+              <span id="pill-lake" class="pill" aria-label="Lake wind"><span id="lake">17</span><span id="mph" class="unit">mph</span></span>
+              <span id="dot" aria-hidden="true">·</span>
+              <span id="pill-gust" class="pill" aria-label="Gust 24 mph"><span id="gust">G24</span><span id="gust-u">mph</span></span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      <div id="data-age" aria-live="polite"></div>
     <button id="refresh" type="button" aria-label="Refresh wind data" title="Refresh wind data">
       <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M20 11a8 8 0 1 0-2.3 5.7"></path>
@@ -334,8 +310,8 @@
   </header>
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
-      <button id="h-48h" type="button" data-horizon="48h" aria-pressed="true">48 h</button>
-      <button id="h-15d" type="button" data-horizon="15d" aria-pressed="false">15 day</button>
+      <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
+      <button id="h-48h" type="button" data-horizon="48h" aria-pressed="false">48 h</button>
     </div>
     <div id="card" hidden>
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
@@ -354,12 +330,6 @@
       </span>
       <span id="wind-badge-text">From NW 315°</span>
     </div>
-    <div id="weather-strip" role="group" aria-label="15-day weather forecast">
-      <div id="weather-days"></div>
-      <div id="weather-detail" aria-live="polite">—</div>
-      <div id="weather-labels">—</div>
-    </div>
-    <div id="data-age" aria-live="polite"></div>
     <div id="legend-card" aria-hidden="true">
       <div id="legend-card-bar"></div>
       <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
@@ -391,10 +361,6 @@
     </div>
   </footer>
   <canvas id="field"></canvas>
-  <!-- Legacy horizon ids: the frozen render.test.js markup gate still greps for these.
-       The live controls are #h-48h / #h-15d; these are hidden and inert. -->
-  <button id="h-24h" type="button" hidden aria-hidden="true"></button>
-  <button id="h-7d" type="button" hidden aria-hidden="true"></button>
   <script src="public/vendor/leaflet/leaflet.js"></script>
   <script>
   (function () {

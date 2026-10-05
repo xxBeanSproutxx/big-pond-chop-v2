@@ -82,6 +82,15 @@ async function main() {
 
   const series = mergeWeather({ near, mid, ifs, ifsOk: decision.ifsOk });
 
+  // A null-wind hour was dropped by rows(), leaving a gap; computeTeff(dtH=1) would
+  // read across it as contiguous and quietly corrupt persistence. Same policy as the
+  // guards above: hole in the series -> no write, last-good data stays live.
+  const gapH = firstHourlyGap(series);
+  if (gapH != null) {
+    console.error(`[guard] hourly gap at ${new Date(gapH).toISOString()} -> no artifact writes, last-good stays, exit 0`);
+    process.exit(0);
+  }
+
   // t_eff persistence over the whole merged hourly series (dtH = 1), then sampled per frame.
   const ordered = series.map((e) => ({ ...e, bearingGrid: gammaToGrid(e.dirTrueDeg, gamma) }));
   const teff = computeTeff(ordered, 1);

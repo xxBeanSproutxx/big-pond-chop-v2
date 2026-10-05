@@ -188,7 +188,7 @@ function dayPartitions(entries) {
 
 // 7-day/15-day horizon steps 4 frames per play tick; the 24h/48h horizon steps 1.
 function playStep(horizon) {
-  return (horizon === '7d' || horizon === '15d') ? 4 : 1;
+  return 1;
 }
 
 function nextPlayIdx(cur, step, n) {
@@ -249,27 +249,6 @@ function chicagoLocalIso(utcIso) {
   const p = {};
   for (const x of parts) p[x.type] = x.value;
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
-}
-
-// P3 weather strip: one summary per America/Chicago calendar day from the merged hourly
-// series. hi/lo °F, daily precip total in INCHES (wire is mm), and max wind mph.
-function dailySummaries(entries) {
-  const map = new Map();
-  for (const e of (entries || [])) {
-    const date = chicagoLocalIso(e.time).slice(0, 10);
-    let d = map.get(date);
-    if (!d) { d = { date, hiF: -Infinity, loF: Infinity, precipMm: 0, maxWindMph: -Infinity }; map.set(date, d); }
-    const t = Number(e.tempF); if (Number.isFinite(t)) { if (t > d.hiF) d.hiF = t; if (t < d.loF) d.loF = t; }
-    const p = Number(e.precipMm); if (Number.isFinite(p)) d.precipMm += p;
-    const w = Number(e.speedMph); if (Number.isFinite(w) && w > d.maxWindMph) d.maxWindMph = w;
-  }
-  return [...map.values()].map((d) => ({
-    date: d.date,
-    hiF: Number.isFinite(d.hiF) ? d.hiF : null,
-    loF: Number.isFinite(d.loF) ? d.loF : null,
-    precipIn: d.precipMm / 25.4,
-    maxWindMph: Number.isFinite(d.maxWindMph) ? d.maxWindMph : null,
-  }));
 }
 
 function bilinearSample(field, cols, rows, colF, rowF) {
@@ -496,12 +475,9 @@ async function mount(deps) {
   const timePill = document.getElementById('time-pill');
   const nowTick = document.getElementById('now-tick');
   const horizonEl = document.getElementById('horizon');
+  const h24Btn = document.getElementById('h-24h');
   const h48Btn = document.getElementById('h-48h');
-  const h15Btn = document.getElementById('h-15d');
   const dataAgeEl = document.getElementById('data-age');
-  const weatherDays = document.getElementById('weather-days');
-  const weatherDetail = document.getElementById('weather-detail');
-  const weatherLabels = document.getElementById('weather-labels');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
   const pillLakeEl = document.getElementById('pill-lake');
@@ -530,11 +506,12 @@ async function mount(deps) {
   // '7d'/'24h' remain accepted on read for bookmarks written by older builds.
   const HORIZON_KEY = 'bpc.horizon';
   const is15d = (v) => v === '15d' || v === '7d';
-  const is48h = (v) => v === '48h' || v === '24h';
+  const is48h = (v) => v === '48h';
   function readStoredHorizon() {
     try {
       const v = localStorage.getItem(HORIZON_KEY);
       if (is15d(v)) return '15d';
+      if (v === '24h') return '24h';
       if (is48h(v)) return '48h';
       return null;
     } catch (err) { return null; }
@@ -543,12 +520,13 @@ async function mount(deps) {
     try { localStorage.setItem(HORIZON_KEY, h); } catch (err) { /* private mode */ }
   }
   function queryHorizon() {
-    const v = q.get('h');
+    const v = q.get('horizon') || q.get('h');
     if (is15d(v)) return '15d';
+    if (v === '24h') return '24h';
     if (is48h(v)) return '48h';
     return null;
   }
-  let horizon = queryHorizon() || readStoredHorizon() || '48h';
+  let horizon = queryHorizon() || readStoredHorizon() || '24h';
   // Resolved horizon is written to both the store and the URL, ?h= merged over existing params.
   function persistHorizon(h) {
     horizon = h;
@@ -558,8 +536,8 @@ async function mount(deps) {
     history.replaceState(null, '', `${location.pathname}?${params.toString()}${location.hash}`);
   }
   function setHorizonPressed(h) {
+    h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
     h48Btn.setAttribute('aria-pressed', h === '48h' ? 'true' : 'false');
-    h15Btn.setAttribute('aria-pressed', h === '15d' ? 'true' : 'false');
   }
 
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -672,6 +650,7 @@ async function mount(deps) {
   let timer = null;
   let builtMs = 0;
   let bootHidden = false;
+  let bootFrameCount = 0;
   let readoutTimer = null;
   let mapReady = false;
   let showSeq = 0;        // bumps per showFrame; a stale await must not overwrite the UI
@@ -688,9 +667,18 @@ async function mount(deps) {
   async function loadCapped(file) {
     const hit = rawCache.get(file);
     if (hit) return hit;
-    const res = await fetch('data/' + file);
-    if (!res.ok) throw new Error(`frame ${file} HTTP ${res.status}`);
-    const u8 = new Uint8Array(await res.arrayBuffer());
+    let buf;
+    if (!bootHidden && frames.length) {
+      bootFrameCount++;
+      buf = await fetchProgress('data/' + file, (f) => {
+        boot(`Loading forecast… ${bootFrameCount}/${frames.length}`, f);
+      });
+    } else {
+      const res = await fetch('data/' + file);
+      if (!res.ok) throw new Error(`frame ${file} HTTP ${res.status}`);
+      buf = await res.arrayBuffer();
+    }
+    const u8 = new Uint8Array(buf);
     const out = new Float64Array(BATHY_CELLS);
     for (let i = 0; i < out.length; i++) {
       const v = u8[i] === undefined ? FRAME_NODATA : u8[i];
@@ -964,7 +952,7 @@ async function mount(deps) {
     trackDays.textContent = '';
     trackTicks.textContent = '';
     stickyHead = null;
-    trackLabel.textContent = horizon === '15d' ? '15 day' : '48 h';
+    trackLabel.textContent = horizon === '15d' ? '15 day' : horizon === '48h' ? '48 h' : '24 h';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
     const pxf = framePx(horizon, viewportW);
@@ -1053,7 +1041,6 @@ async function mount(deps) {
     trackEl.setAttribute('aria-valuenow', String(idx));
     trackEl.setAttribute('aria-valuetext',
       `${ui.formatClockLocal(e.time)}, ${ui.dayLabel(e.time, true)}`);
-    updateWeatherDetail(e);
     writeTape(pos == null ? idx : pos);
   }
 
@@ -1286,12 +1273,11 @@ async function mount(deps) {
     body.dataset.teffH = e.tEffH.toFixed(2);
     // During a drag the tape UI is owned by the continuous scrub path; only the map paints.
     if (!scrubbing) updateScrubUi(cur);
-    else updateWeatherDetail(e);
     // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
     // shore series is still ingested and kept on hand, it is simply not displayed.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
     lakeEl.textContent = pills.lake;
-    gustEl.textContent = pills.gust;
+    gustEl.textContent = 'G' + pills.gust;
     pillGustEl.setAttribute('aria-label', 'Gust ' + pills.gust + ' mph');
     pillLakeEl.setAttribute('aria-label', `Lake wind ${pills.lake} mph`);
     pillLakeEl.style.setProperty('--tint', pills.lakeTint);
@@ -1440,64 +1426,12 @@ async function mount(deps) {
 
   function updateDataAge() {
     if (!dataAgeEl || !windMeta) return;
-    const src = { hrrr: 'HRRR', aifs: 'AIFS', ifs: 'IFS' };
-    const near = src[windMeta.wind_near] || src[windMeta.wind_mid] || 'model';
     const fetched = Date.parse(windMeta.fetched_at);
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
-    let age = '—';
-    if (Number.isFinite(ageH)) age = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${age} (${near})`;
-  }
-
-  // ---- P3 weather strip ---------------------------------------------------------------
-  // 15 day-cells from the merged hourly series (hi/lo °F, precip in, max wind mph).
-  function renderWeatherCells() {
-    if (!weatherDays || !windSeries.length) return;
-    weatherDays.textContent = '';
-    // 360 h opens at 00Z (the prior evening in Chicago), so local grouping yields one
-    // leading partial bucket; the 15-day strip is the trailing 15 local days (run day on).
-    const days = dailySummaries(windSeries).slice(-15);
-    for (const d of days) {
-      const cell = document.createElement('div');
-      cell.className = 'wx-day';
-      cell.dataset.date = d.date;
-      const lines = [
-        ['wx-day-h', ui.dayLabel(d.date).toUpperCase()],
-        ['wx-day-t', `${d.hiF == null ? '—' : Math.round(d.hiF)}°/${d.loF == null ? '—' : Math.round(d.loF)}°`],
-        ['wx-day-p', `${d.precipIn.toFixed(2)} in`],
-        ['wx-day-w', d.maxWindMph == null ? '— mph' : `${Math.round(d.maxWindMph)} mph`],
-      ];
-      for (const [cls, text] of lines) {
-        const span = document.createElement('span');
-        span.className = cls;
-        span.textContent = text;
-        cell.appendChild(span);
-      }
-      weatherDays.appendChild(cell);
-    }
-  }
-
-  // Honest provenance of the merged series (wind.json models), shown once.
-  function updateWeatherLabels() {
-    if (!weatherLabels || !windMeta) return;
-    const near = windMeta.wind_near || '—';
-    const mid = windMeta.wind_mid || '—';
-    weatherLabels.textContent = `wind ${near}/${mid} · gusts ${windMeta.gusts || 'none'}`;
-  }
-
-  // Selected-hour detail for the scrubbed frame: temp / precip (in) / gust + sources.
-  function updateWeatherDetail(e) {
-    if (!weatherDetail) return;
-    if (!e) { weatherDetail.textContent = '—'; return; }
-    const temp = Number.isFinite(e.tempF) ? `${Math.round(e.tempF)}°F` : '—';
-    const precip = Number.isFinite(e.precipMm) ? `${(e.precipMm / 25.4).toFixed(2)} in` : '—';
-    const gust = e.gustMph == null
-      ? 'gust —'
-      : `gust ${Math.round(e.gustMph)} mph ${(windMeta && windMeta.gusts) || ''}`.trim();
-    weatherDetail.textContent =
-      `${ui.dayLabel(e.time, true)} ${ui.formatPillTime(e.time)} · ${temp} · ${precip} · ${gust} · src ${e.src || '—'}`;
-    const sel = String(e.time || '').slice(0, 10);
-    for (const c of (weatherDays ? weatherDays.children : [])) c.classList.toggle('sel', c.dataset.date === sel);
+    let text = '—';
+    if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
+    dataAgeEl.textContent = `updated ${text}`;
+    dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 
   // Cache-bust the two index files so a fresh open never reads a stale manifest; the
@@ -1529,14 +1463,14 @@ async function mount(deps) {
       };
     });
     updateDataAge();
-    renderWeatherCells();
-    updateWeatherLabels();
   }
 
   // Re-slice the in-memory frame set for the active horizon (48h = first 49 hourly frames;
   // 15d = every frame). Zero network on the toggle path.
   function applyForecast() {
-    frames = horizon === '15d' ? allFrames : allFrames.slice(0, 49);
+    frames = horizon === '15d' ? allFrames
+      : horizon === '48h' ? allFrames.slice(0, 49)
+      : allFrames.slice(0, 25);
     builtMs = 0;
     frameCache.clear();
     const d = desiredDims();
@@ -1592,8 +1526,8 @@ async function mount(deps) {
     else renderTimeline();
   }
 
+  h24Btn.addEventListener('click', () => setHorizon('24h'));
   h48Btn.addEventListener('click', () => setHorizon('48h'));
-  h15Btn.addEventListener('click', () => setHorizon('15d'));
   setHorizonPressed(horizon);
   persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)
 
@@ -1625,5 +1559,5 @@ module.exports = {
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
   playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
-  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso, dailySummaries,
+  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
 };
