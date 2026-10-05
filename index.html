@@ -155,7 +155,7 @@
   @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
   body.reduced-motion #boot.indeterminate #boot-bar { animation: none; width: 100%; opacity: .55; }
   /* Stage 5M: single full-height scrolling tape — day header + hour ticks + wind row. */
-  :root { --deck-h: 88px; }
+  :root { --deck-h: 104px; }
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
@@ -171,7 +171,7 @@
   /* P4 weather drawer CSS removed in Phase 5. */
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
-  .deck-track{ height: 88px; display: flex; align-items: stretch; }
+  .deck-track{ height: 104px; display: flex; align-items: stretch; }
   /* 6.2: the horizon toggle OWNS the top-left map corner now that the zoom stack is
      docked bottom-right — it used to start at left: 56 px purely to clear the 44 px
      zoom control. 12 px matches #wind-badge's 12 px on the opposite corner. */
@@ -181,7 +181,7 @@
                     font: 11px/1 system-ui, sans-serif; touch-action: manipulation; }
   #horizon button[aria-pressed="true"] { background: #ffd166; color: #10263a; border-color: #ffd166; }
   /* #timeline is the viewing window: the tape scrolls under a fixed centre reticle. */
-  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 88px; overflow: hidden;
+  #timeline { position: relative; flex: 1 1 auto; min-width: 0; height: 104px; overflow: hidden;
               border-radius: 4px; background: #262930; }
   /* Wide filmstrip tape; translated by the single writeTape() path in render.js. */
 #track-tape { position: absolute; left: 0; top: 0; height: 100%;
@@ -212,7 +212,10 @@
   /* Phase 6: .day-sub (3-hourly tick labels) deleted — temp row owns this lane now. */
   /* 5P wind numbers: embedded inside the heat ribbon, under each 3 h tick. The 20px
      line-box vertically centres the 12px type in the 40-60 px band. */
-  /* Phase 6 deck lanes (88px total): day-head 0-14 · temp 18-30 · precip 34-52 · wind+heat 54-86. */
+  /* Phase 6 deck lanes (88px): day-head 0-14 · temp 18-30 · precip 34-52 · wind+heat 54-86.
+     Phase 7 lanes (104px): day-head 0-14 · temp 18-30 · precip(+rain labels) 34-52 ·
+     wind+heat 54-86 · hours 90-102. Temp+rain group visually (4px apart); hours group
+     with wind at the bottom per Reid's layout. */
   .day-wind { position: absolute; top: 68px; transform: translateX(-50%);
                font: 700 12px/1 system-ui, -apple-system, sans-serif; color: #ffffff;
                text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
@@ -220,20 +223,33 @@
                height: 16px; line-height: 16px; width: 20px; text-align: center; }
   /* 5P wind heat ribbon: one continuous gradient per day block, flush along the bottom,
      painted behind the numbers (DOM order). */
-  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 2px; height: 18px;
+  .day-heat { position: absolute; left: 3px; right: 3px; bottom: 18px; height: 18px;
               border-radius: 3px; }
   /* Phase 5/6: precip line graph SVG layer above the wind ribbon, with an always-on
      baseline hairline so a dry day reads as a lane, not a void. */
-  .day-precip { position: absolute; left: 3px; right: 3px; bottom: 24px; height: 18px;
+  .day-precip { position: absolute; left: 3px; right: 3px; bottom: 40px; height: 18px;
                 pointer-events: none; overflow: hidden; opacity: .92; }
   .day-precip::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0;
                 height: 1px; background: rgba(107, 168, 212, .38); }
   .day-precip svg { display: block; width: 100%; height: 100%; }
+  /* Phase 7: rain amount labels (💧mm) at burst peaks, sitting in the gap above the
+     precip SVG — keeps temp row (above) and rain graph (below) grouped but legible. */
+  .day-rain { position: absolute; top: 34px; transform: translateX(-50%);
+              font: 600 9px/1 system-ui, -apple-system, sans-serif; color: #7fb8dd;
+              white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
   /* Phase 5: temp labels at 3-hourly anchors, same style as wind labels (sibling rows). */
   .day-temp { position: absolute; top: 18px; transform: translateX(-50%);
               font: 700 11px/1 system-ui, -apple-system, sans-serif;
               white-space: nowrap; font-variant-numeric: tabular-nums;
-              height: 14px; line-height: 14px; width: 20px; text-align: center; }
+              height: 14px; line-height: 14px; width: 24px; text-align: center; }
+  /* Phase 7: hour labels under the wind ribbon (hours grouped with wind). */
+  .day-hour { position: absolute; top: 90px; transform: translateX(-50%);
+              font: 500 9px/1 system-ui, -apple-system, sans-serif; color: #8a97a5;
+              white-space: nowrap; font-variant-numeric: tabular-nums;
+              height: 12px; line-height: 12px; width: 20px; text-align: center; }
+  .day-hour.edge { color: #e8f0f7; font-weight: 700; }
+  .day-dot  { position: absolute; top: 95px; width: 2px; height: 2px; border-radius: 50%;
+              background: #5b6774; transform: translateX(-50%); }
   /* Stage 5L/5M. 6B.4 / 6.1: docked FLUSH to the deck (bottom: 4px, measured against
      #map whose bottom edge IS the deck's top) and trimmed to 134px so it ends at
      x = 142 on a 360px viewport — clearing the amber reticle's left edge (x = 146)
