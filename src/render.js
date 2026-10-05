@@ -1535,7 +1535,7 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.6`;
+    dataAgeEl.textContent = `updated ${text} · ui v2.7`;
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 
