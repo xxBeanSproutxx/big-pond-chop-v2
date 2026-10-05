@@ -251,6 +251,30 @@ function chicagoLocalIso(utcIso) {
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
+// P4 weather drawer: one summary per America/Chicago calendar day from the merged hourly
+// series. hi/lo °F, daily precip total in INCHES (wire is mm), min/max wind mph, and
+// direction at max wind.
+function dailySummaries(entries) {
+  const map = new Map();
+  for (const e of (entries || [])) {
+    const date = chicagoLocalIso(e.time).slice(0, 10);
+    let d = map.get(date);
+    if (!d) { d = { date, hiF: -Infinity, loF: Infinity, precipMm: 0, maxWindMph: -Infinity, minWindMph: Infinity, peakDirDeg: null }; map.set(date, d); }
+    const t = Number(e.tempF); if (Number.isFinite(t)) { if (t > d.hiF) d.hiF = t; if (t < d.loF) d.loF = t; }
+    const p = Number(e.precipMm); if (Number.isFinite(p)) d.precipMm += p;
+    const w = Number(e.speedMph); if (Number.isFinite(w)) { if (w > d.maxWindMph) { d.maxWindMph = w; d.peakDirDeg = Number(e.dirTrueDeg); } if (w < d.minWindMph) d.minWindMph = w; }
+  }
+  return [...map.values()].map((d) => ({
+    date: d.date,
+    hiF: Number.isFinite(d.hiF) ? d.hiF : null,
+    loF: Number.isFinite(d.loF) ? d.loF : null,
+    precipIn: d.precipMm / 25.4,
+    maxWindMph: Number.isFinite(d.maxWindMph) ? d.maxWindMph : null,
+    minWindMph: Number.isFinite(d.minWindMph) ? d.minWindMph : null,
+    peakDirDeg: d.peakDirDeg,
+  }));
+}
+
 function bilinearSample(field, cols, rows, colF, rowF) {
   const cx = colF < 0 ? 0 : colF > cols - 1 ? cols - 1 : colF;
   const ry = rowF < 0 ? 0 : rowF > rows - 1 ? rows - 1 : rowF;
@@ -476,7 +500,7 @@ async function mount(deps) {
   const nowTick = document.getElementById('now-tick');
   const horizonEl = document.getElementById('horizon');
   const h24Btn = document.getElementById('h-24h');
-  const h48Btn = document.getElementById('h-48h');
+  const h15Btn = document.getElementById('h-15d');
   const dataAgeEl = document.getElementById('data-age');
   const lakeEl = document.getElementById('lake');
   const gustEl = document.getElementById('gust');
@@ -492,6 +516,10 @@ async function mount(deps) {
   const card = document.getElementById('card');
   const mapEl = document.getElementById('map');
   const readout = document.getElementById('readout');
+  const wxDrawer = document.getElementById('wx-drawer');
+  const wxChevron = document.getElementById('wx-chevron');
+  const wxToday = document.getElementById('wx-today');
+  const wxRows = document.getElementById('wx-rows');
   // Panel chrome must not double as a map tap: without this, clicking the card's X (or the
   // wind badge) also fires Leaflet's map click, which re-drops the pin and reopens the card.
   ['click', 'mousedown', 'touchstart', 'dblclick'].forEach((t) => {
@@ -502,17 +530,13 @@ async function mount(deps) {
   const q = new URLSearchParams(location.search);
   const DEFAULT_HINT = 'tap the lake for a local readout';
 
-  // ---- horizon state (v2: 48h | 15d; never let storage throw-crash boot) ----
-  // '7d'/'24h' remain accepted on read for bookmarks written by older builds.
+  // ---- horizon state (v2: 24h | 15d; never let storage throw-crash boot) ----
   const HORIZON_KEY = 'bpc.horizon';
-  const is15d = (v) => v === '15d' || v === '7d';
-  const is48h = (v) => v === '48h';
   function readStoredHorizon() {
     try {
       const v = localStorage.getItem(HORIZON_KEY);
-      if (is15d(v)) return '15d';
+      if (v === '15d') return '15d';
       if (v === '24h') return '24h';
-      if (is48h(v)) return '48h';
       return null;
     } catch (err) { return null; }
   }
@@ -521,9 +545,8 @@ async function mount(deps) {
   }
   function queryHorizon() {
     const v = q.get('horizon') || q.get('h');
-    if (is15d(v)) return '15d';
+    if (v === '15d') return '15d';
     if (v === '24h') return '24h';
-    if (is48h(v)) return '48h';
     return null;
   }
   let horizon = queryHorizon() || readStoredHorizon() || '24h';
@@ -537,7 +560,7 @@ async function mount(deps) {
   }
   function setHorizonPressed(h) {
     h24Btn.setAttribute('aria-pressed', h === '24h' ? 'true' : 'false');
-    h48Btn.setAttribute('aria-pressed', h === '48h' ? 'true' : 'false');
+    h15Btn.setAttribute('aria-pressed', h === '15d' ? 'true' : 'false');
   }
 
   const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -952,7 +975,7 @@ async function mount(deps) {
     trackDays.textContent = '';
     trackTicks.textContent = '';
     stickyHead = null;
-    trackLabel.textContent = horizon === '15d' ? '15 day' : horizon === '48h' ? '48 h' : '24 h';
+    trackLabel.textContent = horizon === '15d' ? '15 day' : '24 h';
     if (!frames.length || !viewportW) return;
     const n = frames.length;
     const pxf = framePx(horizon, viewportW);
@@ -1273,6 +1296,7 @@ async function mount(deps) {
     body.dataset.teffH = e.tEffH.toFixed(2);
     // During a drag the tape UI is owned by the continuous scrub path; only the map paints.
     if (!scrubbing) updateScrubUi(cur);
+    highlightWxDay(e.time.slice(0, 10));
     // 6.2: two-badge row — lake (tier-tinted) + gust, each carrying its own unit. The
     // shore series is still ingested and kept on hand, it is simply not displayed.
     const pills = ui.windPills(e.speedMph, null, e.gustMph);
@@ -1390,6 +1414,14 @@ async function mount(deps) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   playBtn.addEventListener('click', () => setPlaying(!playing));
   document.getElementById('card-close').addEventListener('click', dismissPin);
+  if (wxDrawer) {
+    wxDrawer.addEventListener('click', () => {
+      const expanded = wxDrawer.getAttribute('aria-expanded') === 'true';
+      wxDrawer.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      wxChevron.textContent = expanded ? '▶' : '▼';
+      wxRows.hidden = expanded;
+    });
+  }
   // 6.2: the ? explainer and its popover were removed with the shore pill — the two
   // badges are self-labelling, so there is no popover to open, close, focus or trap.
   // A width change moves the rail mapping: re-place the hairline/playhead + day label.
@@ -1434,6 +1466,38 @@ async function mount(deps) {
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 
+  // P4 weather drawer: 15 daily summary rows inside the deck.
+  function renderWeatherDrawer() {
+    if (!wxToday || !wxRows || !windSeries.length) return;
+    const days = dailySummaries(windSeries).slice(-15);
+    wxToday.textContent = formatWxDay(days.length ? days[days.length - 1] : null, false);
+    wxRows.textContent = '';
+    for (const d of days) {
+      const row = document.createElement('div');
+      row.className = 'wx-row';
+      row.dataset.date = d.date;
+      row.textContent = formatWxDay(d, true);
+      wxRows.appendChild(row);
+    }
+  }
+
+  function formatWxDay(d, withDate) {
+    if (!d) return '—';
+    const dayLbl = withDate ? `${ui.dayLabel(d.date)} ` : '';
+    const windDir = d.peakDirDeg != null && d.maxWindMph != null
+      ? `${ui.compass(d.peakDirDeg, d.maxWindMph).sector} ${Math.round(d.minWindMph)}–${Math.round(d.maxWindMph)} mph`
+      : '— mph';
+    const hi = d.hiF != null ? `${Math.round(d.hiF)}°` : '—°';
+    const lo = d.loF != null ? `${Math.round(d.loF)}°` : '—°';
+    const p = `${d.precipIn.toFixed(2)} in`;
+    return `${dayLbl}${windDir} · ${p} · ${hi}/${lo}`;
+  }
+
+  function highlightWxDay(dateStr) {
+    if (!wxRows) return;
+    for (const c of wxRows.children) c.classList.toggle('sel', c.dataset.date === dateStr);
+  }
+
   // Cache-bust the two index files so a fresh open never reads a stale manifest; the
   // per-frame .bin fetches stay plain (the SW caches them with a query-less key).
   async function loadForecast() {
@@ -1463,13 +1527,13 @@ async function mount(deps) {
       };
     });
     updateDataAge();
+    renderWeatherDrawer();
   }
 
-  // Re-slice the in-memory frame set for the active horizon (48h = first 49 hourly frames;
+  // Re-slice the in-memory frame set for the active horizon (24h = first 25 hourly frames;
   // 15d = every frame). Zero network on the toggle path.
   function applyForecast() {
     frames = horizon === '15d' ? allFrames
-      : horizon === '48h' ? allFrames.slice(0, 49)
       : allFrames.slice(0, 25);
     builtMs = 0;
     frameCache.clear();
@@ -1527,7 +1591,7 @@ async function mount(deps) {
   }
 
   h24Btn.addEventListener('click', () => setHorizon('24h'));
-  h48Btn.addEventListener('click', () => setHorizon('48h'));
+  h15Btn.addEventListener('click', () => setHorizon('15d'));
   setHorizonPressed(horizon);
   persistHorizon(horizon); // resolved horizon -> storage + URL (replaceState)
 
@@ -1559,5 +1623,5 @@ module.exports = {
   offscreenSupported, revokeUrl, shouldPaintResult, shouldPaintMap, encodeOffscreen,
   pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
   playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
-  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
+  tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso, dailySummaries,
 };
