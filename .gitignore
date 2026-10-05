@@ -17,3 +17,4 @@ node_modules/
 
 # Temp review artifacts (recordings, screenshots, logs)
 tmp/
+.gstack/
