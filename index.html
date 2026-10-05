@@ -159,7 +159,7 @@
   body { height: 100vh; height: 100dvh; }
   #deck {
     flex: 0 0 auto;
-    height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
+    min-height: calc(var(--deck-h) + env(safe-area-inset-bottom, 0px));
     padding: 0 8px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background: #0f172a; overflow: visible;
@@ -168,6 +168,16 @@
     user-select: none; -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   }
+  /* P4 weather drawer: collapsed 28px row, expanded scrollable day list. */
+  #wx-drawer { display: flex; align-items: center; gap: 6px; height: 28px; min-height: 44px;
+               padding: 4px 6px; color: #9fc3dd; font-size: 12px; white-space: nowrap;
+               overflow: hidden; cursor: pointer; }
+  #wx-rows { max-height: min(40vh, 320px); overflow-y: auto; display: flex; flex-direction: column;
+             gap: 1px; padding: 2px 6px; }
+  #wx-rows:not([hidden]) + #wx-drawer { /* expanded: drawer stays visible at top */ }
+  .wx-row { font-size: 11px; color: #cfe3f2; padding: 2px 4px; font-variant-numeric: tabular-nums;
+            white-space: nowrap; }
+  .wx-row.sel { background: rgba(255,209,102,.15); color: #ffd166; }
   .deck-row  { overflow: hidden; }
   .deck-track{ overflow: visible; position: relative; } /* pill floats above; play overlays */
   .deck-track{ height: 62px; display: flex; align-items: stretch; }
@@ -311,7 +321,7 @@
   <div id="map">
     <div id="horizon" role="group" aria-label="Forecast horizon">
       <button id="h-24h" type="button" data-horizon="24h" aria-pressed="true">24 h</button>
-      <button id="h-48h" type="button" data-horizon="48h" aria-pressed="false">48 h</button>
+      <button id="h-15d" type="button" data-horizon="15d" aria-pressed="false">15 d</button>
     </div>
     <div id="card" hidden>
       <button id="card-close" type="button" aria-label="Dismiss readout">×</button>
@@ -342,6 +352,11 @@
     </div>
   </div>
   <footer id="deck">
+    <div id="wx-drawer" class="deck-row" role="button" tabindex="0" aria-expanded="false">
+      <span id="wx-chevron" aria-hidden="true">▶</span>
+      <span id="wx-today"></span>
+    </div>
+    <div id="wx-rows" class="deck-row" hidden></div>
     <div class="deck-row deck-track" id="track"
          role="slider" tabindex="0" aria-label="Time scrubber"
          aria-valuemin="0" aria-valuemax="95" aria-valuenow="0" aria-valuetext="—">
