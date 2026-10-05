@@ -3,7 +3,7 @@
 // network-first so a deploy never serves stale code. Precomputed data under /data/
 // is network-first with a cache fallback (live data on open, offline still maps).
 // Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = 'bpc-cache-v2';
+const CACHE_NAME = 'bpc-cache-v3';
 
 const SHELL = [
   './', './index.html',
@@ -70,8 +70,19 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  if (/\/data\/[^/]*\.(json|bin)$/.test(url.pathname)) {
-    e.respondWith(dataFirst(req));
+  if (/\/data\/[^/]*\.bin$/.test(url.pathname)) {
+    // Frames are immutable once written (worker commits new files, never edits
+    // existing ones) — cache-first so weak signal never blocks a scrub.
+    e.respondWith(
+      caches.match(new Request(url.origin + url.pathname)).then((r) => r || fetch(req).then((res) => {
+        const copy = res.clone(); caches.open(CACHE_NAME).then((c) => c.put(new Request(url.origin + url.pathname), copy)); return res;
+      }))
+    );
+    return;
+  }
+
+  if (/\/data\/[^/]*\.json$/.test(url.pathname)) {
+    e.respondWith(dataFirst(req)); // frames.json: hourly-changing, must stay network-first
     return;
   }
 

@@ -17,3 +17,14 @@ export function mergeWeather({ near = [], mid = [], ifs = [], ifsOk = false } = 
   }
   return [...byT.values()].sort((a, b) => stamp(a.t) - stamp(b.t));
 }
+
+// Timestamp (ms) of the first non-hourly step between consecutive entries, else null.
+// rows() silently drops null-wind hours; a hole here would make computeTeff(dtH=1)
+// read across it as contiguous and corrupt the delay math. ±60 s tolerance for jitter.
+export function firstHourlyGap(series) {
+  for (let i = 1; i < series.length; i++) {
+    const d = stamp(series[i].t) - stamp(series[i - 1].t);
+    if (d < 3540e3 || d > 3660e3) return stamp(series[i].t);
+  }
+  return null;
+}

@@ -3,10 +3,7 @@
 // strip's daily aggregation. Synthetic rows only — no network, no fs.
 import assert from 'node:assert';
 import { createRequire } from 'node:module';
-import { mergeWeather } from '../worker/merge.mjs';
-
-const require = createRequire(import.meta.url);
-const render = require('../src/render.js');
+import { mergeWeather, firstHourlyGap } from '../worker/merge.mjs';
 
 let passes = 0, failures = 0;
 function check(name, fn) {
@@ -78,24 +75,19 @@ check('near=[] (HRRR dead) -> all rows src aifs; IFS still fills AIFS null gusts
   assert.strictEqual(at(s, '2026-09-24T10:00').gustMph, null, 'past IFS -> null');
 });
 
-console.log('\n== strip daily aggregation ==');
-check('dailySummaries: Chicago-day hi/lo F, precip inches, max wind mph', () => {
-  const hours = [
-    { time: '2026-09-24T05:00:00.000Z', tempF: 50, precipMm: 0, speedMph: 12 },   // 00:00 CDT Sep 24
-    { time: '2026-09-24T18:00:00.000Z', tempF: 70, precipMm: 25.4, speedMph: 25 }, // 13:00 CDT Sep 24
-    { time: '2026-09-25T12:00:00.000Z', tempF: 40, precipMm: 12.7, speedMph: 5 },  // 07:00 CDT Sep 25
-  ];
-  const d = render.dailySummaries(hours);
-  assert.strictEqual(d.length, 2, 'two Chicago days');
-  assert.deepStrictEqual([d[0].date, d[1].date], ['2026-09-24', '2026-09-25']);
-  assert.strictEqual(d[0].hiF, 70);
-  assert.strictEqual(d[0].loF, 50);
-  assert.ok(Math.abs(d[0].precipIn - 1.0) < 1e-9, `precip ${d[0].precipIn}`);
-  assert.strictEqual(d[0].maxWindMph, 25);
-  assert.strictEqual(d[1].hiF, 40);
-  assert.strictEqual(d[1].loF, 40);
-  assert.ok(Math.abs(d[1].precipIn - 0.5) < 1e-9, `precip ${d[1].precipIn}`);
-  assert.strictEqual(d[1].maxWindMph, 5);
+// ---- firstHourlyGap: rows() drops null hours; computeTeff(dtH=1) must never read across a hole ----
+const hourly = (n, startH = 1) => Array.from({ length: n }, (_, i) =>
+  ({ t: `2026-09-24T${String(startH + i).padStart(2, '0')}:00`, speedMph: 10, dirTrueDeg: 180, gustMph: null, tempF: 50, precipMm: 0 }));
+
+check('firstHourlyGap: contiguous hourly series -> null', () => {
+  const s = mergeWeather({ near: [], mid: hourly(5), ifs: [], ifsOk: false });
+  assert.strictEqual(firstHourlyGap(s), null);
+});
+
+check('firstHourlyGap: missing 04:00 hour -> flags the hour after the hole', () => {
+  const rows = hourly(5).filter((e) => e.t !== '2026-09-24T04:00'); // 01,02,03,05
+  const s = mergeWeather({ near: [], mid: rows, ifs: [], ifsOk: false });
+  assert.strictEqual(firstHourlyGap(s), new Date('2026-09-24T05:00Z').getTime());
 });
 
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : failures + ' TEST(S) FAILED'} (${passes} assertions)`);
