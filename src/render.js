@@ -1055,6 +1055,30 @@ async function mount(deps) {
       }
       svgWrap.appendChild(svg);
       block.appendChild(svgWrap);
+      // Phase 7: rain amount labels at the local peaks of each wet burst (>0.3mm).
+      // Self-labels the blue layer — a droplet glyph + mm value, only when it rains,
+      // so dry days stay clean. Strict rise (p > previous) marks the label frame, so
+      // equal-value plateaus label once at burst start and bell curves at their peak.
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const p = Number.isFinite(e.precipMm) ? e.precipMm : 0;
+        if (p < 0.3) continue;
+        const prev = frames[i - 1], next = frames[i + 1];
+        const pp = prev && Number.isFinite(prev.precipMm) ? prev.precipMm : 0;
+        const pn = next && Number.isFinite(next.precipMm) ? next.precipMm : 0;
+        if (p <= pp || p < pn) continue; // strictly-rising local max only
+        const drop = document.createElement('span');
+        drop.className = 'day-rain';
+        drop.textContent = `💧${p.toFixed(1)}`;
+        if (i === start) {
+          drop.style.left = '3px';
+          drop.style.transform = 'none';
+        } else {
+          drop.style.left = `${Math.max(14, Math.min(w - 14, (i - start) * pxf))}px`;
+        }
+        block.appendChild(drop);
+      }
       // Phase 5: three-hourly temp labels above the precip layer.
       for (let i = start; i < end; i++) {
         const e = frames[i];
@@ -1069,9 +1093,36 @@ async function mount(deps) {
         } else {
           temp.style.left = `${Math.max(6, Math.min(w - 6, (i - start) * pxf))}px`;
         }
-        temp.textContent = String(Math.round(e.tempF));
+        temp.textContent = `${Math.round(e.tempF)}°`;
         temp.style.color = tempLabelColor(e.tempF);
         block.appendChild(temp);
+      }
+      // Phase 7: hour labels UNDER the wind ribbon — hours grouped with wind per Reid's
+      // grouping. 24h: 3-hourly. 15d: midnight only + 3-hourly tick dots on the ribbon
+      // edge (a 22px/day column can't fit text every 3h).
+      const coarse = horizon === '15d' || horizon === '7d';
+      for (let i = start; i < end; i++) {
+        const e = frames[i];
+        if (!e) continue;
+        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
+        if (mm !== 0 || hh % 3 !== 0) continue;
+        if (coarse && hh % 12 !== 0) {
+          const dot = document.createElement('span');
+          dot.className = 'day-dot';
+          dot.style.left = `${(i - start) * pxf}px`;
+          block.appendChild(dot);
+          continue;
+        }
+        const hr = document.createElement('span');
+        hr.className = 'day-hour' + (hh === 0 ? ' edge' : '');
+        if (i === start) {
+          hr.style.left = '3px';
+          hr.style.transform = 'none';
+        } else {
+          hr.style.left = `${Math.max(10, Math.min(w - 10, (i - start) * pxf))}px`;
+        }
+        hr.textContent = `${((hh % 12) || 12)}${hh < 12 ? 'a' : 'p'}`;
+        block.appendChild(hr);
       }
       trackDays.appendChild(block);
     }
@@ -1481,7 +1532,7 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.5`;
+    dataAgeEl.textContent = `updated ${text} · ui v2.6`;
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
   }
 
