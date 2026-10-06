@@ -1037,10 +1037,10 @@ async function mount(deps) {
         const e = frames[i];
         if (!e) continue;
         const x = (i - start) * pxf;
-        const p = Number.isFinite(e.precipMm) ? Math.min(4, e.precipMm) : 0;
-        // Drizzle floor: measurable precip gets >=2.5px, else 0.2mm/h maps sub-pixel
-        // and real rain renders as a flat line (Reid's catch on live data).
-        const y = p === 0 ? 18 : Math.max(18 - 2.5, 18 - (p / 4) * 16);
+        const p = Number.isFinite(e.precipMm) ? Math.min(4/3, e.precipMm) : 0;
+        // Drizzle floor: measurable precip gets >=4px; scale 0-4/3mm maps to full 16px
+        // so 0.2mm drizzle reads 4px and 1mm heavy rain reads >=12px.
+        const y = p === 0 ? 18 : Math.min(18 - 4, 18 - p * 12);
         pts.push(`${x},${y.toFixed(1)}`);
       }
       if (pts.length > 1) {
