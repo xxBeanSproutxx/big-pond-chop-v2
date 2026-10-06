@@ -997,21 +997,21 @@ async function mount(deps) {
       const hourly = [];
       for (let i = start; i < end; i++) {
         const e = frames[i];
-        if (!e) continue;
-        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
-        if (mm === 0 && Number.isFinite(e.speedMph)) hourly.push(e.speedMph);
+        if (e && Number.isFinite(e.speedMph)) hourly.push(e.speedMph);
       }
       const heat = document.createElement('div');
       heat.className = 'day-heat';
       heat.setAttribute('aria-hidden', 'true');
       heat.style.backgroundImage = ui.windHeatGradient(hourly);
       block.appendChild(heat);
-      // 5P: three-hourly wind labels embedded in the ribbon, at the same anchors as ticks.
+      // 5P: three-hourly wind labels embedded in the ribbon. Anchor on the day's FIRST
+      // frame (i === start), not hh%3: far-day frames are anchored at the worker's run
+      // hour (2,5,8,11 local), which never satisfies hh%3===0 — labels vanished on
+      // every day past ~Oct 7 (Reid: "wind speed missing on some of the days").
       for (let i = start; i < end; i++) {
         const e = frames[i];
-        if (!e) continue;
-        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
-        if (mm !== 0 || hh % 3 !== 0 || !Number.isFinite(e.speedMph)) continue;
+        if (!e || !Number.isFinite(e.speedMph)) continue;
+        if ((i - start) % 3 !== 0) continue;
         const wind = document.createElement('span');
         wind.className = 'day-wind';
         if (i === start) {
@@ -1082,12 +1082,11 @@ async function mount(deps) {
         }
         block.appendChild(drop);
       }
-      // Phase 5: three-hourly temp labels above the precip layer.
+      // Phase 5/7: temp labels every 3rd frame (bucketed — see wind-label note above;
+      // far-day frames sit at off-hours, hh%3 anchoring blanked far-day temp lanes).
       for (let i = start; i < end; i++) {
         const e = frames[i];
-        if (!e) continue;
-        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
-        if (mm !== 0 || hh % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
+        if (!e || (i - start) % 3 !== 0 || !Number.isFinite(e.tempF)) continue;
         const temp = document.createElement('span');
         temp.className = 'day-temp';
         if (i === start) {
@@ -1101,20 +1100,20 @@ async function mount(deps) {
         block.appendChild(temp);
       }
       // Phase 7: hour labels UNDER the wind ribbon — hours grouped with wind per Reid's
-      // grouping. 24h: 3-hourly. 15d: midnight only + 3-hourly tick dots on the ribbon
-      // edge (a 22px/day column can't fit text every 3h).
+      // grouping. Bucketed every 3rd frame (24h) so off-hour far-day frames label too;
+      // 15d: one label per day at the first frame (a 22px column can't fit 8 texts).
       const coarse = horizon === '15d' || horizon === '7d';
       for (let i = start; i < end; i++) {
         const e = frames[i];
         if (!e) continue;
-        const hh = +e.time.slice(11, 13), mm = +e.time.slice(14, 16);
-        if (mm !== 0 || hh % 3 !== 0) continue;
-        if (coarse && hh % 12 !== 0) {
+        if ((i - start) % (coarse ? 8 : 3) !== 0) continue;
+        const hh = +e.time.slice(11, 13);
+        if (coarse) {
           const dot = document.createElement('span');
           dot.className = 'day-dot';
           dot.style.left = `${(i - start) * pxf}px`;
           block.appendChild(dot);
-          continue;
+          if ((i - start) !== 0) continue; // 15d: dots only, day-head carries the date
         }
         const hr = document.createElement('span');
         hr.className = 'day-hour' + (hh === 0 ? ' edge' : '');
@@ -1535,7 +1534,7 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.8`;
+    dataAgeEl.textContent = `updated ${text} · ui v2.9`;
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ffb347' : '#d9e6f2';
     dataAgeEl.style.fontWeight = 700;
   }
