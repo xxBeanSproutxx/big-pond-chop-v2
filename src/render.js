@@ -1535,8 +1535,9 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.7`;
-    dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ea580c' : '#9fc3dd';
+    dataAgeEl.textContent = `updated ${text} · ui v2.8`;
+    dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ffb347' : '#d9e6f2';
+    dataAgeEl.style.fontWeight = 700;
   }
 
   // Cache-bust the two index files so a fresh open never reads a stale manifest; the

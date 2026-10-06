@@ -1,0 +1,1 @@
+Minnesota has 11,842 lakes. This one has a 15-day wave forecast — 152 frames of depth-aware wind-wave height for Mille Lacs Lake, computed every hour. It will happily tell you when to just stay home.
