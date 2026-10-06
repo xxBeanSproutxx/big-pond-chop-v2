@@ -3,7 +3,7 @@
 // network-first so a deploy never serves stale code. Precomputed data under /data/
 // is network-first with a cache fallback (live data on open, offline still maps).
 // Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = "bpc-cache-v9";
+const CACHE_NAME = "bpc-cache-v10";
 
 const SHELL = [
   './', './index.html',
