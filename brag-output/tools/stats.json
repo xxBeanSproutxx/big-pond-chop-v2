@@ -1,0 +1,201 @@
+{
+  "keyframes": {
+    "0": {
+      "p10": 0.4,
+      "max": 1,
+      "roller": 1.7,
+      "wind": 12,
+      "gust": 15,
+      "sector": "S",
+      "dir": 165,
+      "label": "Thu, Sep 24, 9 PM",
+      "tierKey": "yellow",
+      "tierLabel": "Walleye Chop"
+    },
+    "12": {
+      "p10": 0.5,
+      "max": 1.4,
+      "roller": 2.3,
+      "wind": 12,
+      "gust": 13,
+      "sector": "SE",
+      "dir": 143,
+      "label": "Fri, Sep 25, 9 AM",
+      "tierKey": "yellow",
+      "tierLabel": "Walleye Chop"
+    },
+    "24": {
+      "p10": 0.3,
+      "max": 0.9,
+      "roller": 1.6,
+      "wind": 10,
+      "gust": 15,
+      "sector": "SE",
+      "dir": 128,
+      "label": "Fri, Sep 25, 9 PM",
+      "tierKey": "yellow",
+      "tierLabel": "Walleye Chop"
+    },
+    "36": {
+      "p10": 0.9,
+      "max": 2.4,
+      "roller": 4,
+      "wind": 21,
+      "gust": 30,
+      "sector": "SE",
+      "dir": 144,
+      "label": "Sat, Sep 26, 9 AM",
+      "tierKey": "amber",
+      "tierLabel": "Heavy Rollers"
+    },
+    "42": {
+      "p10": 1,
+      "max": 2.6,
+      "roller": 4.4,
+      "wind": 22,
+      "gust": 31,
+      "sector": "SE",
+      "dir": 151,
+      "label": "Sat, Sep 26, 3 PM",
+      "tierKey": "red",
+      "tierLabel": "Dangerous · Stay Home"
+    },
+    "43": {
+      "p10": 0.9,
+      "max": 2.8,
+      "roller": 4.7,
+      "wind": 20,
+      "gust": 31,
+      "sector": "SE",
+      "dir": 157,
+      "label": "Sat, Sep 26, 4 PM",
+      "tierKey": "red",
+      "tierLabel": "Dangerous · Stay Home"
+    },
+    "48": {
+      "p10": 0.4,
+      "max": 2.5,
+      "roller": 4.1,
+      "wind": 11,
+      "gust": 14,
+      "sector": "SE",
+      "dir": 148,
+      "label": "Sat, Sep 26, 9 PM",
+      "tierKey": "red",
+      "tierLabel": "Dangerous · Stay Home"
+    },
+    "60": {
+      "p10": 0,
+      "max": 0,
+      "roller": 0,
+      "wind": 5,
+      "gust": 15,
+      "sector": "SE",
+      "dir": 143,
+      "label": "Mon, Sep 28, 9 AM",
+      "tierKey": "green",
+      "tierLabel": "Fishable · Light Chop"
+    },
+    "72": {
+      "p10": 0.2,
+      "max": 0.4,
+      "roller": 0.7,
+      "wind": 6,
+      "gust": 11,
+      "sector": "NW",
+      "dir": 312,
+      "label": "Tue, Sep 29, 9 PM",
+      "tierKey": "green",
+      "tierLabel": "Fishable · Light Chop"
+    },
+    "84": {
+      "p10": 0.1,
+      "max": 0.3,
+      "roller": 0.6,
+      "wind": 3,
+      "gust": 19,
+      "sector": "NE",
+      "dir": 63,
+      "label": "Thu, Oct 1, 9 AM",
+      "tierKey": "green",
+      "tierLabel": "Fishable · Light Chop"
+    }
+  },
+  "days": [
+    {
+      "head": "THU",
+      "date": "24",
+      "wind": 21
+    },
+    {
+      "head": "FRI",
+      "date": "25",
+      "wind": 15
+    },
+    {
+      "head": "SAT",
+      "date": "26",
+      "wind": 24
+    },
+    {
+      "head": "SUN",
+      "date": "27",
+      "wind": 9
+    },
+    {
+      "head": "MON",
+      "date": "28",
+      "wind": 10
+    },
+    {
+      "head": "TUE",
+      "date": "29",
+      "wind": 9
+    },
+    {
+      "head": "WED",
+      "date": "30",
+      "wind": 8
+    },
+    {
+      "head": "THU",
+      "date": "1",
+      "wind": 11
+    },
+    {
+      "head": "FRI",
+      "date": "2",
+      "wind": 16
+    },
+    {
+      "head": "SAT",
+      "date": "3",
+      "wind": 9
+    },
+    {
+      "head": "SUN",
+      "date": "4",
+      "wind": 9
+    },
+    {
+      "head": "MON",
+      "date": "5",
+      "wind": 10
+    },
+    {
+      "head": "TUE",
+      "date": "6",
+      "wind": 10
+    },
+    {
+      "head": "WED",
+      "date": "7",
+      "wind": 7
+    },
+    {
+      "head": "THU",
+      "date": "8",
+      "wind": 11
+    }
+  ]
+}

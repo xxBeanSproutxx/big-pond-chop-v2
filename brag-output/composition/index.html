@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Big Pond Chop — 15-day wave forecast for Mille Lacs Lake</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px; overflow: hidden;
+        background: #0d1b2a; color: #e8f0f7;
+        font-family: "Montserrat", sans-serif;
+      }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+      /* ---------- background ---------- */
+      #bg { position: absolute; inset: 0; z-index: 0; }
+      #bg .glow {
+        position: absolute; border-radius: 50%;
+        filter: blur(0px);
+      }
+      #glow-amber {
+        width: 1200px; height: 1200px; left: -320px; top: -420px;
+        background: radial-gradient(circle, rgba(255,209,102,.16) 0%, rgba(255,209,102,0) 62%);
+      }
+      #glow-teal {
+        width: 1400px; height: 1400px; left: 760px; top: 260px;
+        background: radial-gradient(circle, rgba(8,145,178,.20) 0%, rgba(8,145,178,0) 60%);
+      }
+      #grid {
+        position: absolute; inset: 0; opacity: .5;
+        background-image:
+          repeating-linear-gradient(0deg, rgba(159,195,221,.07) 0 1px, transparent 1px 90px),
+          repeating-linear-gradient(90deg, rgba(159,195,221,.07) 0 1px, transparent 1px 90px);
+      }
+      #rule {
+        position: absolute; left: 120px; top: 250px; width: 4px; height: 560px;
+        background: linear-gradient(180deg, #ffd166 0%, rgba(255,209,102,0) 100%);
+        opacity: .55;
+      }
+
+      /* ---------- scene copy ---------- */
+      .clip { position: absolute; inset: 0; z-index: 6; }
+      .copy { position: absolute; left: 178px; top: 300px; width: 780px; }
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace; font-weight: 700;
+        font-size: 24px; letter-spacing: .26em; color: #ffd166; margin-bottom: 26px;
+      }
+      .hl {
+        font-family: "Oswald", sans-serif; font-weight: 600; font-size: 82px;
+        line-height: 1.03; letter-spacing: -0.005em; color: #f8fafc;
+      }
+      .hl + .hl { margin-top: 14px; }
+      .hl.accent { color: #ffd166; }
+
+      /* ---------- phone (persistent) ---------- */
+      #phone {
+        position: absolute; left: 1350px; top: 100px; width: 440px; height: 880px;
+        z-index: 5; display: flex; flex-direction: column; overflow: hidden;
+        border-radius: 44px; background: #0d1b2a;
+        border: 2px solid rgba(255,255,255,.14);
+        box-shadow: 0 50px 110px rgba(0,0,0,.6), 0 0 90px rgba(255,209,102,.10);
+      }
+      #phone-header {
+        flex: 0 0 auto; height: 96px; padding: 11px 16px 9px;
+        background: rgba(15,23,42,.96); border-bottom: 1px solid rgba(255,255,255,.1);
+        display: flex; flex-direction: column; justify-content: center; gap: 3px;
+      }
+      .ph-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      #ph-range {
+        font-family: "Oswald", sans-serif; font-weight: 600; font-size: 23px;
+        color: #f8fafc; white-space: nowrap;
+      }
+      #ph-chip {
+        font-family: "Montserrat", sans-serif; font-weight: 800; font-size: 13px;
+        padding: 3px 9px; border-radius: 4px; white-space: nowrap; color: #0d1b2a;
+        background: #facc15;
+      }
+      #ph-peak {
+        font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 14px;
+        color: #ffd166; white-space: nowrap;
+      }
+      #ph-wind {
+        display: flex; align-items: baseline; gap: 6px;
+        font-family: "JetBrains Mono", monospace; font-size: 12px; color: #9fc3dd;
+      }
+      #ph-wind b { color: #f8fafc; font-size: 14px; }
+      #ph-wind .u { color: #cbd5e1; font-size: 11px; }
+
+      #phone-map {
+        position: relative; flex: 1 1 auto; overflow: hidden; background: #cdd1cf;
+        background-image:
+          repeating-linear-gradient(0deg, rgba(120,132,128,.22) 0 1px, transparent 1px 30px),
+          repeating-linear-gradient(90deg, rgba(120,132,128,.22) 0 1px, transparent 1px 30px);
+      }
+      .heat {
+        position: absolute; left: 0; top: 50%; width: 100%; height: auto;
+        transform: translateY(-50%); opacity: 0;
+      }
+      #ph-horizon {
+        position: absolute; left: 12px; top: 12px; display: flex; gap: 6px;
+      }
+      #ph-horizon .hbtn {
+        font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 13px;
+        padding: 4px 10px; border-radius: 999px; color: #e8f0f7;
+        background: rgba(16,38,58,.92); border: 1px solid #33506b;
+      }
+      #ph-horizon .hbtn.on { background: #ffd166; color: #10263a; border-color: #ffd166; }
+      #ph-badge {
+        position: absolute; right: 12px; top: 12px; display: flex; align-items: center;
+        gap: 6px; height: 32px; padding: 0 12px 0 4px; border-radius: 16px;
+        background: rgba(16,38,58,.92);
+        font-family: "Montserrat", sans-serif; font-weight: 600; font-size: 13px; color: #e8f0f7;
+      }
+      #ph-arrow { display: block; }
+
+      #phone-strip {
+        flex: 0 0 auto; height: 66px; padding: 7px 10px; display: flex; gap: 6px;
+        background: rgba(16,38,58,.94); border-top: 1px solid rgba(255,255,255,.08);
+      }
+      .wx {
+        flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 1px;
+        padding: 3px 2px; border-radius: 6px; background: rgba(255,255,255,.05);
+      }
+      .wx .h { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 11px; color: #e8f0f7; }
+      .wx .d { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 12px; color: #f8fafc; }
+      .wx .w { font-family: "JetBrains Mono", monospace; font-size: 10px; color: #ffd166; }
+
+      #phone-tape {
+        position: relative; flex: 0 0 auto; height: 98px; background: #0f172a;
+        display: flex; align-items: center; padding-left: 46px; overflow: hidden;
+      }
+      #play {
+        position: absolute; left: 0; top: 0; bottom: 0; width: 46px; z-index: 3;
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(90deg, rgba(16,38,58,.95), rgba(16,38,58,0));
+      }
+      #time-pill {
+        position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+        z-index: 4; padding: 2px 12px; border-radius: 10px; background: #b45309;
+        font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 13px;
+        color: #ffffff; white-space: nowrap;
+      }
+      #time-pill::after {
+        content: ""; position: absolute; left: 50%; top: 100%; margin-left: -5px;
+        border-left: 5px solid transparent; border-right: 5px solid transparent;
+        border-top: 8px solid #d69e0b;
+      }
+      #tape-view { flex: 1 1 auto; height: 66px; overflow: hidden; }
+      #tape-track { display: flex; height: 100%; }
+      .dayblk {
+        flex: 0 0 auto; width: 116px; height: 66px; padding: 6px 8px;
+        background: #23272e; border-left: 1px solid #4a5568;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .dayblk.alt { background: #1b1d22; }
+      .dayblk .dh { font-family: "Montserrat", sans-serif; font-weight: 700; font-size: 13px; color: #e8f0f7; }
+      .dayblk .dd { font-family: "JetBrains Mono", monospace; font-size: 11px; color: #94a3b8; }
+      .dayblk .dw {
+        margin-top: auto; font-family: "JetBrains Mono", monospace; font-weight: 700;
+        font-size: 14px; color: #ffffff;
+      }
+      .dayblk .dw .u { font-size: 10px; color: #9fc3dd; }
+
+      /* scrub cursor (above phone) */
+      #cursor { position: absolute; left: 1350px; top: 940px; z-index: 8; opacity: 0; }
+
+      /* ---------- outro ---------- */
+      #wordmark {
+        position: absolute; left: 150px; top: 330px;
+        font-family: "Oswald", sans-serif; font-weight: 700; font-size: 158px;
+        line-height: .95; letter-spacing: -0.01em; color: #f8fafc;
+      }
+      #tagline {
+        position: absolute; left: 154px; top: 520px; width: 1120px;
+        font-family: "Oswald", sans-serif; font-weight: 400; font-size: 46px;
+        letter-spacing: .01em; color: #ffd166;
+      }
+      #ladder { position: absolute; left: 156px; top: 640px; display: flex; gap: 14px; }
+      .lchip {
+        font-family: "Montserrat", sans-serif; font-weight: 800; font-size: 25px;
+        padding: 8px 18px; border-radius: 8px; color: #fff; white-space: nowrap;
+      }
+      .lchip.green { background: #15803d; }
+      .lchip.yellow { background: #facc15; color: #0d1b2a; }
+      .lchip.amber { background: #c2410c; }
+      .lchip.red { background: #dc2626; }
+      #footer {
+        position: absolute; left: 156px; top: 730px;
+        font-family: "JetBrains Mono", monospace; font-size: 26px; color: #9fc3dd;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="15"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- persistent background -->
+      <div id="bg">
+        <div class="glow" id="glow-amber"></div>
+        <div class="glow" id="glow-teal"></div>
+        <div id="grid"></div>
+        <div id="rule"></div>
+      </div>
+
+      <!-- persistent phone viewer -->
+      <div id="phone">
+        <div id="phone-header">
+          <div class="ph-row">
+            <div id="ph-range">Waves: 0.5 - 1.4 ft</div>
+            <div id="ph-chip" class="chip-yellow">Walleye Chop</div>
+          </div>
+          <div id="ph-peak">Peak: 2.3 ft · Mille Lacs Lake</div>
+          <div id="ph-wind">
+            <span><b id="ph-lake">12</b><span class="u"> mph</span></span>
+            <span class="u">·</span>
+            <span><b id="ph-gust">13</b><span class="u"> Gust</span></span>
+          </div>
+        </div>
+        <div id="phone-map">
+          <img class="heat" id="heat-000" src="assets/heat/heat-000.png" alt="" />
+          <img class="heat" id="heat-012" src="assets/heat/heat-012.png" alt="" />
+          <img class="heat" id="heat-024" src="assets/heat/heat-024.png" alt="" />
+          <img class="heat" id="heat-036" src="assets/heat/heat-036.png" alt="" />
+          <img class="heat" id="heat-042" src="assets/heat/heat-042.png" alt="" />
+          <img class="heat" id="heat-043" src="assets/heat/heat-043.png" alt="" />
+          <img class="heat" id="heat-048" src="assets/heat/heat-048.png" alt="" />
+          <img class="heat" id="heat-060" src="assets/heat/heat-060.png" alt="" />
+          <img class="heat" id="heat-072" src="assets/heat/heat-072.png" alt="" />
+          <img class="heat" id="heat-084" src="assets/heat/heat-084.png" alt="" />
+          <div id="ph-horizon">
+            <span class="hbtn" id="hb-48">48 h</span>
+            <span class="hbtn on" id="hb-15d">15 day</span>
+          </div>
+          <div id="ph-badge">
+            <svg id="ph-arrow" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="#ffd166">
+              <path d="M12 2 L17.5 20.5 L12 16.2 L6.5 20.5 Z"></path>
+            </svg>
+            <span id="ph-from">From S 165°</span>
+          </div>
+        </div>
+        <div id="phone-strip"></div>
+        <div id="phone-tape">
+          <div id="time-pill" data-layout-allow-occlusion data-layout-allow-overlap>9 PM</div>
+          <div id="tape-view">
+            <div id="tape-track" data-layout-ignore></div>
+          </div>
+          <div id="play" data-layout-allow-occlusion>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="#e8f0f7">
+              <polygon points="7,4 20,12 7,20"></polygon>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- scrub cursor -->
+      <div id="cursor">
+        <svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true">
+          <path d="M5 2 L19 12.5 L12.4 13.4 L15.8 20.4 L13.1 21.7 L9.7 14.6 L5 19 Z"
+                fill="#f8fafc" stroke="#0d1b2a" stroke-width="1.4"></path>
+        </svg>
+      </div>
+
+      <!-- Scene 1 — Hook -->
+      <section class="clip" id="s1" data-start="0" data-duration="3.4" data-track-index="0">
+        <div class="copy">
+          <div class="eyebrow" id="s1-eye">MILLE LACS LAKE · MINNESOTA</div>
+          <h2 class="hl" id="s1a">Minnesota has 11,842 lakes.</h2>
+          <h2 class="hl accent" id="s1b">This one has a wave forecast.</h2>
+        </div>
+      </section>
+
+      <!-- Scene 2 — The read -->
+      <section class="clip" id="s2" data-start="3.4" data-duration="2.8" data-track-index="0">
+        <div class="copy">
+          <h2 class="hl" id="s2a">Never one number.</h2>
+          <h2 class="hl accent" id="s2b">A range, a peak, and a verdict.</h2>
+        </div>
+      </section>
+
+      <!-- Scene 3 — Scrub the lake -->
+      <section class="clip" id="s3" data-start="6.2" data-duration="4.8" data-track-index="0">
+        <div class="copy">
+          <h2 class="hl" id="s3a">Scrub 15 days.</h2>
+          <h2 class="hl accent" id="s3b">Watch the lake change its mind.</h2>
+        </div>
+      </section>
+
+      <!-- Scene 4 — Outro -->
+      <section class="clip" id="s4" data-start="11" data-duration="4" data-track-index="0">
+        <h1 id="wordmark">BIG POND CHOP</h1>
+        <p id="tagline">15-day wind waves for Mille Lacs Lake.</p>
+        <div id="ladder">
+          <span class="lchip green" id="lc-1">Fishable · Light Chop</span>
+          <span class="lchip yellow" id="lc-2">Walleye Chop</span>
+          <span class="lchip amber" id="lc-3">Heavy Rollers</span>
+          <span class="lchip red" id="lc-4">Dangerous · Stay Home</span>
+        </div>
+        <div id="footer">Computed hourly · One lake.</div>
+      </section>
+    </div>
+
+    <!-- audio -->
+    <audio id="bg-music" data-start="0" data-duration="15" data-track-index="10" data-volume="1"
+      data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":0.32},{"t":0.7,"v":0.32},{"t":13.8,"v":0.32},{"t":15,"v":0}]}]}'
+      src="assets/music/happy-beats-business-moves-vol-10-by-ende-dot-app.mp3"></audio>
+
+    <audio id="sfx-phone" data-start="1.5" data-track-index="11" data-volume="0.75" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+    <audio id="sfx-map" data-start="2.0" data-track-index="12" data-volume="0.6" src="assets/sfx/interface/drop_001.ogg"></audio>
+    <audio id="sfx-verdict" data-start="3.45" data-track-index="13" data-volume="0.6" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+    <audio id="sfx-chip2" data-start="4.55" data-track-index="14" data-volume="0.45" src="assets/sfx/interface/click_003.ogg"></audio>
+    <audio id="sfx-click" data-start="6.6" data-track-index="15" data-volume="0.6" src="assets/sfx/ui/mouseclick1.ogg"></audio>
+    <audio id="sfx-tick1" data-start="7.4" data-track-index="16" data-volume="0.35" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+    <audio id="sfx-tick2" data-start="8.6" data-track-index="17" data-volume="0.35" src="assets/sfx/keyboard/keypress-002.wav"></audio>
+    <audio id="sfx-flip" data-start="8.6" data-track-index="18" data-volume="0.5" src="assets/sfx/interface/drop_002.ogg"></audio>
+    <audio id="sfx-tick3" data-start="9.8" data-track-index="19" data-volume="0.35" src="assets/sfx/keyboard/keypress-003.wav"></audio>
+    <audio id="sfx-bell" data-start="11.15" data-duration="1.2" data-track-index="20" data-volume="0.85" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+
+    <script>
+      // Real precomputed readouts from data/ (brag-output/tools/make-stats.mjs).
+      var STATS = {
+        0:  { p10: 0.4, max: 1.0, roller: 1.7, wind: 12, gust: 15, sector: "S",  dir: 165, label: "9 PM", tierKey: "yellow", tierLabel: "Walleye Chop" },
+        12: { p10: 0.5, max: 1.4, roller: 2.3, wind: 12, gust: 13, sector: "SE", dir: 143, label: "9 AM", tierKey: "yellow", tierLabel: "Walleye Chop" },
+        24: { p10: 0.3, max: 0.9, roller: 1.6, wind: 10, gust: 15, sector: "SE", dir: 128, label: "9 PM", tierKey: "yellow", tierLabel: "Walleye Chop" },
+        36: { p10: 0.9, max: 2.4, roller: 4.0, wind: 21, gust: 30, sector: "SE", dir: 144, label: "9 AM", tierKey: "amber",  tierLabel: "Heavy Rollers" },
+        42: { p10: 1.0, max: 2.6, roller: 4.4, wind: 22, gust: 31, sector: "SE", dir: 151, label: "3 PM", tierKey: "red",    tierLabel: "Dangerous · Stay Home" },
+        43: { p10: 0.9, max: 2.8, roller: 4.7, wind: 20, gust: 31, sector: "SE", dir: 157, label: "4 PM", tierKey: "red",    tierLabel: "Dangerous · Stay Home" },
+        48: { p10: 0.4, max: 2.5, roller: 4.1, wind: 11, gust: 14, sector: "SE", dir: 148, label: "9 PM", tierKey: "red",    tierLabel: "Dangerous · Stay Home" },
+        60: { p10: 0.0, max: 0.0, roller: 0.0, wind: 5,  gust: 15, sector: "SE", dir: 143, label: "9 AM", tierKey: "green",  tierLabel: "Calm · Flat" },
+        72: { p10: 0.2, max: 0.4, roller: 0.7, wind: 6,  gust: 11, sector: "NW", dir: 312, label: "9 PM", tierKey: "green",  tierLabel: "Calm · Flat" },
+        84: { p10: 0.1, max: 0.3, roller: 0.6, wind: 3,  gust: 19, sector: "NE", dir: 63,  label: "9 AM", tierKey: "green",  tierLabel: "Calm · Flat" }
+      };
+      var DAYS = [
+        ["THU", "24", 21], ["FRI", "25", 15], ["SAT", "26", 24], ["SUN", "27", 9],
+        ["MON", "28", 10], ["TUE", "29", 9], ["WED", "30", 8], ["THU", "1", 11]
+      ];
+
+      // Build the weather strip + tape from real day data.
+      var strip = document.getElementById("phone-strip");
+      for (var i = 0; i < 5; i++) {
+        var d = DAYS[i];
+        var cell = document.createElement("div");
+        cell.className = "wx";
+        cell.innerHTML = '<span class="h">' + d[0] + "</span><span class=\"d\">" + d[1] +
+          '</span><span class="w">' + d[2] + " mph</span>";
+        strip.appendChild(cell);
+      }
+      var track = document.getElementById("tape-track");
+      for (var j = 0; j < DAYS.length; j++) {
+        var dd = DAYS[j];
+        var blk = document.createElement("div");
+        blk.className = "dayblk" + (j % 2 ? " alt" : "");
+        blk.innerHTML = '<span class="dh">' + dd[0] + '</span><span class="dd">' + dd[1] +
+          '</span><span class="dw">' + dd[2] + '<span class="u"> mph</span></span>';
+        track.appendChild(blk);
+      }
+
+      function apply(idx) {
+        var s = STATS[idx];
+        if (!s) return;
+        document.getElementById("ph-range").textContent =
+          "Waves: " + s.p10.toFixed(1) + " - " + s.max.toFixed(1) + " ft";
+        document.getElementById("ph-peak").textContent = "Peak: " + s.roller.toFixed(1) + " ft · Mille Lacs Lake";
+        var chip = document.getElementById("ph-chip");
+        chip.textContent = s.tierLabel;
+        chip.style.background = ({ green: "#15803d", yellow: "#facc15", amber: "#c2410c", red: "#dc2626" })[s.tierKey];
+        chip.style.color = s.tierKey === "yellow" ? "#0d1b2a" : "#ffffff";
+        document.getElementById("ph-lake").textContent = s.wind;
+        document.getElementById("ph-gust").textContent = s.gust;
+        document.getElementById("ph-from").textContent = "From " + s.sector + " " + s.dir + "\u00b0";
+        document.getElementById("ph-arrow").style.transform = "rotate(" + ((s.dir + 180) % 360) + "deg)";
+        document.getElementById("ph-arrow").style.transformOrigin = "50% 50%";
+        document.getElementById("time-pill").textContent = s.label;
+      }
+
+      apply(0);
+      var tl = gsap.timeline({ paused: true });
+      tl.call(apply, [0], 0);
+
+      // --- persistent background drift ---
+      tl.fromTo("#glow-amber", { opacity: 0 }, { opacity: 1, duration: 2, ease: "power2.out" }, 0);
+      tl.fromTo("#glow-teal", { opacity: 0 }, { opacity: 1, duration: 2.4, ease: "power2.out" }, 0.2);
+      tl.fromTo("#rule", { scaleY: 0 }, { scaleY: 1, duration: 1.2, ease: "power3.out", transformOrigin: "top" }, 0.1);
+      tl.to("#glow-teal", { scale: 1.08, duration: 7, ease: "sine.inOut", repeat: 1, yoyo: true }, 1);
+
+      // --- Scene 1 ---
+      tl.fromTo("#s1-eye", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 0.05);
+      tl.fromTo("#s1a", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0.15);
+      tl.fromTo("#s1b", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 1.6);
+      tl.fromTo("#phone", { opacity: 0, y: 150, scale: 0.95 }, { opacity: 1, y: 0, scale: 1, duration: 0.9, ease: "power3.out" }, 1.4);
+      tl.fromTo("#heat-000", { opacity: 0 }, { opacity: 0.82, duration: 0.7, ease: "power1.out" }, 1.6);
+      tl.to("#heat-000", { opacity: 0, duration: 0.7, ease: "power1.inOut" }, 2.8);
+      tl.to("#heat-012", { opacity: 0.82, duration: 0.35, ease: "power1.inOut" }, 2.8);
+      tl.call(apply, [12], 3.05);
+
+      // --- Scene 2: verdict reveal ---
+      tl.call(apply, [42], 3.45);
+      tl.to("#heat-012", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 3.15);
+      tl.to("#heat-042", { opacity: 0.82, duration: 0.5, ease: "power2.inOut" }, 3.15);
+      tl.fromTo("#s2a", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 3.6);
+      tl.fromTo("#s2b", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 4.55);
+      tl.fromTo("#ph-chip", { scale: 1.35 }, { scale: 1, duration: 0.5, ease: "back.out(2.5)" }, 3.45);
+      tl.to("#phone", { scale: 1.05, duration: 2.6, ease: "sine.inOut" }, 3.42);
+
+      // --- Scene 3: scrub ---
+      tl.call(apply, [60], 6.2);
+      tl.to("#phone", { scale: 1, duration: 0.6, ease: "sine.out" }, 6.2);
+      tl.to("#heat-042", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 6.2);
+      tl.to("#heat-060", { opacity: 0.82, duration: 0.5, ease: "power2.inOut" }, 6.2);
+      tl.fromTo("#s3a", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 6.7);
+      tl.fromTo("#s3b", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 8.4);
+      tl.fromTo("#cursor", { opacity: 0, x: 0 }, { opacity: 1, duration: 0.3, ease: "power2.out" }, 6.45);
+      tl.to("#cursor", { x: 132, duration: 3.6, ease: "power1.inOut" }, 6.7);
+      tl.to("#tape-track", { x: -430, duration: 3.6, ease: "power1.inOut" }, 6.7);
+      tl.to("#cursor", { opacity: 0, duration: 0.3 }, 10.4);
+      tl.to("#heat-060", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 7.4);
+      tl.to("#heat-042", { opacity: 0.82, duration: 0.5, ease: "power2.inOut" }, 7.4);
+      tl.call(apply, [42], 7.65);
+      tl.to("#heat-042", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 8.55);
+      tl.to("#heat-036", { opacity: 0.82, duration: 0.5, ease: "power2.inOut" }, 8.55);
+      tl.call(apply, [36], 8.8);
+      tl.to("#heat-036", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 9.75);
+      tl.to("#heat-024", { opacity: 0.82, duration: 0.5, ease: "power2.inOut" }, 9.75);
+      tl.call(apply, [24], 10.0);
+
+      // --- Scene 4: outro ---
+      tl.call(apply, [84], 11.0);
+      tl.to("#heat-024", { opacity: 0, duration: 0.6, ease: "power2.inOut" }, 11.0);
+      tl.to("#heat-084", { opacity: 0.82, duration: 0.6, ease: "power2.inOut" }, 11.0);
+      tl.to("#phone", { opacity: 0, scale: 0.97, duration: 0.6, ease: "power2.in" }, 11.0);
+      tl.fromTo("#wordmark", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.75, ease: "power4.out" }, 11.2);
+      tl.fromTo("#tagline", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out" }, 12.0);
+      tl.fromTo("#lc-1", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 12.5);
+      tl.fromTo("#lc-2", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 12.95);
+      tl.fromTo("#lc-3", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 13.4);
+      tl.fromTo("#lc-4", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 13.85);
+      tl.fromTo("#footer", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, 14.2);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>
