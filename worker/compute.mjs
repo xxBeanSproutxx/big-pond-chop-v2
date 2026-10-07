@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { computeDelayedField, CG_MPH } from '../src/delay-math.mjs';
 import { rows, gustRows, decideModels, quantize, writeArtifacts } from './guard.mjs';
-import { mergeWeather } from './merge.mjs';
+import { mergeWeather, firstHourlyGap } from './merge.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
