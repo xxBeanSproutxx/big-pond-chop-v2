@@ -114,7 +114,7 @@
                   padding: 2px 6px; white-space: nowrap; line-height: 1.25; }
   .tier-green { background: #15803d; color: #fff; }
   .tier-yellow { background: #facc15; color: #0d1b2a; }
-  .tier-amber { background: #ea580c; color: #fff; }
+  .tier-amber { background: #c04d10; color: #fff; }
   .tier-red { background: #dc2626; color: #fff; }
   @media (max-width: 400px) {
     #verdict-range { font-size: 14px; }
@@ -257,9 +257,10 @@
   #legend-card { position: absolute; left: 8px; bottom: 4px !important; margin: 0;
                  z-index: 500; pointer-events: none;
                  background: rgba(16,38,58,.85); border-radius: 8px; padding: 5px 6px; }
-  #legend-card-bar { width: 122px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
+#legend-card-bar { width: 122px; height: 11px; border-radius: 3px; border: 1px solid #33506b; }
   #legend-card-ticks { width: 122px; margin-top: 2px; display: flex; justify-content: space-between;
-                       font-size: 8px; line-height: 1; color: #9fc3dd; }
+                        font-size: 8px; line-height: 1; color: #9fc3dd; }
+  #legend-card-hint { margin-top: 3px; font-size: 9px; line-height: 1.15; color: #94a3b8; white-space: nowrap; }
   #track:focus-visible { outline: 2px solid #ffd166; outline-offset: -2px; }
   /* Play control pinned to the window's left edge: icon only, no chrome. It overlays the
      tape (no flex space) so the tape scrolls behind it; the faint scrim keeps the glyph legible. */
@@ -301,10 +302,16 @@
   /* 6B.4 / 6.1: no box, no shadow, no blur — crisp muted slate that stays sharp on the
      light desaturated tiles. #64748b at 9px/500 measures ~4.0:1 there (the previous
      #94a3b8 needed the text-shadow and measured ~2.6:1 without it). */
-  .leaflet-control-attribution { background: none !important; box-shadow: none !important;
-                                 color: #64748b; font-size: 9px; font-weight: 500;
-                                 text-shadow: none; }
+.leaflet-control-attribution { background: none !important; box-shadow: none !important;
+                                  color: #64748b; font-size: 9px; font-weight: 500;
+                                  text-shadow: none; }
   .leaflet-control-attribution a { color: #64748b; }
+  /* Phase 6: ≥44px zoom control touch targets (!important: Leaflet's own .leaflet-bar a
+     sets explicit 26px height later in the cascade and otherwise wins) */
+  .leaflet-control-zoom a { width: 44px !important; height: 44px !important; line-height: 44px !important; }
+  .leaflet-control-zoom { border: 1px solid rgba(255,255,255,.15); border-radius: 6px; }
+  /* Phase 6: 1px lane divider between weather (precip) and wind (heat) */
+  .day-block::after { content: ''; position: absolute; left: 3px; right: 3px; top: 53px; height: 1px; background: rgba(74,85,104,.35); pointer-events: none; }
   #field { display: none; }
 </style>
 </head>
@@ -360,6 +367,7 @@
     <div id="legend-card" aria-hidden="true">
       <div id="legend-card-bar"></div>
       <div id="legend-card-ticks"><span>0</span><span>1</span><span>2</span><span>3.5</span><span>4.5</span><span>6+</span></div>
+      <div id="legend-card-hint">waves build ~1 h behind the wind across open water</div>
     </div>
     <div id="note"><span id="note-msg">wind unavailable — retry</span><button id="note-retry" type="button">Retry</button></div>
     <div id="boot">

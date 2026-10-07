@@ -36,8 +36,13 @@ except ImportError:  # pragma: no cover
     sys.exit(2)
 
 ROOT = Path(__file__).resolve().parents[2]
-OVERLAY_OK = ("() => { var i = document.querySelector('.leaflet-image-layer'); "
-              "return !!i && i.naturalWidth > 0; }")
+# Readiness = canvas sized + deck built from real frame data (.day-hour/.day-dot spans
+# only exist after frames.json loads). The old .leaflet-image-layer naturalWidth check
+# predates the OffscreenCanvas/blob render path — its imgs decode as naturalWidth 0
+# by design now, so it could never pass (bench has been unrunnable since that change).
+OVERLAY_OK = ("() => { var c = document.querySelector('canvas'); "
+              "return !!c && c.width > 0 && "
+              "!!document.querySelector('.day-hour, .day-dot'); }")
 
 # add_init_script takes a *script body* string. Everything is installed before page scripts
 # run; element lookups are deferred to the pointer/observer path.
@@ -182,14 +187,17 @@ def pct(values, p):
 
 
 def goto_horizon(page, horizon):
-    # v2: 48h = first 49 hourly frames (max 48); 15d = the full precomputed set.
-    sel = "#h-48h" if horizon == "48h" else "#h-15d"
+    # v2: 24h = first 49 hourly frames (max 48); 15d = the full precomputed set.
+    sel = "#h-24h" if horizon == "24h" else "#h-15d"
     if page.get_attribute(sel, "aria-pressed") != "true":
         page.click(sel)
     n = page.evaluate(
         "() => parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) + 1")
+    # Readiness gate: the track reports HOURS today (24h horizon → 24, 15d → 150).
+    # The old ">= 48" was 48h-era frame-count semantics — unsatisfiable since v2.2.
+    # A loaded 24h horizon guarantees >= 24; 0/undefined still fails this wait.
     page.wait_for_function(
-        "() => parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) >= 48",
+        "() => parseInt(document.getElementById('track').getAttribute('aria-valuemax'), 10) >= 24",
         timeout=90000)
     page.wait_for_timeout(600)
 
@@ -210,7 +218,7 @@ def measure_horizon(page, horizon):
     g = read_geometry(page)
     if not g["tape"]:
         return None
-    px_day = g["tape"] / (2.0 if horizon == "48h" else 15.0)
+    px_day = g["tape"] / (1.0 if horizon == "24h" else 15.0)
     return {
         "window": round(g["window"], 1),
         "tape": round(g["tape"], 1),
@@ -338,7 +346,7 @@ def run_case(pw, url, width, height, dsf, label, touch=False):
         page.wait_for_function(OVERLAY_OK, timeout=90000)
 
         case["horizons"] = {
-            "48h": measure_horizon(page, "48h"),
+            "24h": measure_horizon(page, "24h"),
             "15d": measure_horizon(page, "15d"),
         }
 
@@ -348,9 +356,9 @@ def run_case(pw, url, width, height, dsf, label, touch=False):
         case["instruments"] = inst
 
         case["drags"] = {}
-        for hz in ("48h", "15d"):
+        for hz in ("24h", "15d"):
             case["drags"][hz] = measured_drag(page, ctx, touch, hz)
-        case["drag"] = case["drags"]["48h"]
+        case["drag"] = case["drags"]["24h"]
         case["drag15d"] = case["drags"]["15d"]
         case["available"] = True
     except Exception as exc:  # noqa: BLE001 - bench records, never aborts
@@ -383,11 +391,11 @@ def verdict(case):
     if not case.get("available"):
         return [("unavailable", False, case.get("error") or "not driven")]
     d = case["drag"]
-    h48 = (case.get("horizons") or {}).get("48h") or {}
+    h48 = (case.get("horizons") or {}).get("24h") or {}
     ins = case.get("instruments") or {}
     checks = [
         ("instruments", all(ins.values()), "tx/src/long/paint=%s" % ins),
-        ("runway_48h>=150", h48.get("runway", -1) >= 150, "runway=%s" % h48.get("runway")),
+        ("runway_24h>=150", h48.get("runway", -1) >= 150, "runway=%s" % h48.get("runway")),
         ("swaps<=12", d["swaps"] <= 12, "swaps=%d" % d["swaps"]),
         # 6.3: bar is the drag-step count (moves - 1) — the mouse driver's pre-down
         # positioning move emits no transform write, and the suspension design keeps
@@ -396,7 +404,7 @@ def verdict(case):
          "tx=%d moves=%d" % (d["tapeTx"], d["moves"])),
         ("long<=50", d["longMax"] <= 50, "longtasks=%s" % d["longtasks"]),
     ]
-    checks += _drag_checks("48h", d)
+    checks += _drag_checks("24h", d)
     checks += _drag_checks("15d", case["drag15d"])
     return checks
 
@@ -406,10 +414,10 @@ def print_table(cases):
     print("SCRUB BENCH")
     print("-" * 108)
     print("%-14s %-16s %-9s %8s %8s %8s %9s %8s %8s %10s"
-          % ("label", "viewport", "mode", "px/day48", "p50_48h", "p90_48h",
+          % ("label", "viewport", "mode", "px/day48", "p50_24h", "p90_24h",
              "p50_15d", "p90_15d", "swaps", "tx/moves"))
     for c in cases:
-        h48 = (c.get("horizons") or {}).get("48h") or {}
+        h48 = (c.get("horizons") or {}).get("24h") or {}
         d = c.get("drag") or {}
         d15 = c.get("drag15d") or {}
         l48 = d.get("latency") or {}
@@ -478,7 +486,7 @@ def main():
     print_table(result["cases"])
 
     # DONE-WHEN summary: p50/p90 of the pointermove latency, pooled per horizon.
-    for hz in ("48h", "15d"):
+    for hz in ("24h", "15d"):
         vals = [x for c in result["cases"] if c.get("available")
                 for x in (c["drags"][hz]["latencies"] if c.get("drags") else [])]
         if vals:

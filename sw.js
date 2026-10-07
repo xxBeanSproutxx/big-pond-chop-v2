@@ -3,11 +3,12 @@
 // network-first so a deploy never serves stale code. Precomputed data under /data/
 // is network-first with a cache fallback (live data on open, offline still maps).
 // Bump CACHE_NAME on every future deploy.
-const CACHE_NAME = "bpc-cache-v10";
+const CACHE_NAME = "bpc-cache-v11";
 
 const SHELL = [
   './', './index.html',
   './src/tables.js', './src/wave-math.js', './src/wind.js', './src/ui.js', './src/render.js',
+  './src/sun-times.mjs',
   './public/vendor/leaflet/leaflet.js', './public/vendor/leaflet/leaflet.css',
   './public/vendor/leaflet/images/layers.png', './public/vendor/leaflet/images/layers-2x.png',
   './public/vendor/leaflet/images/marker-icon.png', './public/vendor/leaflet/images/marker-icon-2x.png',

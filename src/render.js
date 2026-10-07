@@ -35,6 +35,14 @@ const STICKY_INSET = 56;    // 5L: sticky day header clears the 48 px #play butt
 const SUSPEND_MAX_MS = 1200; // anti-freeze: one paint per 1.2 s of continuous suspension
 const DRAG_RASTER_W = 512;   // 6.3 D3.5: drag-time raster width in device px (rest width 780)
 
+// Phase 6: linear blend between two rasters of equal length.
+// out[i] = a[i] + (b[i]-a[i])*t. Safe for the 0=land sentinel.
+function blendRasters(a, b, t) {
+  const out = new Float64Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] + (b[i] - a[i]) * t;
+  return out;
+}
+
 // ---- affine warp ----
 function gridToLonlat(warp, col, row) {
   const a = warp.grid_to_lonlat, b = warp.grid_to_lonlat_row;
@@ -475,6 +483,9 @@ function createFrameCache(opts = {}) {
 // ---- browser app ----
 async function mount(deps) {
   const { tables: T, wind } = deps;
+  // Phase 6: load sunrise/sunset calculator (browser-only ESM import)
+  let _sunTimesUtc;
+  try { _sunTimesUtc = (await import('./src/sun-times.mjs')).sunTimesUtc; } catch (e) {}
   const note = document.getElementById('note');
   const noteMsg = document.getElementById('note-msg');
   const noteRetry = document.getElementById('note-retry');
@@ -1126,6 +1137,58 @@ async function mount(deps) {
         hr.textContent = `${((hh % 12) || 12)}${hh < 12 ? 'a' : 'p'}`;
         block.appendChild(hr);
       }
+      // Phase 6: sunrise/sunset ticks
+      if (_sunTimesUtc && centroid && w > 20) {
+        const dayDate = parts[k].date;
+        const noonMs = Date.UTC(+dayDate.slice(0, 4), +dayDate.slice(5, 7) - 1, +dayDate.slice(8, 10), 12);
+        const sun = _sunTimesUtc(noonMs, centroid.lat, centroid.lon);
+        if (sun.sunriseMs != null && sun.sunsetMs != null) {
+          const firstMs = frames[start].utcMs;
+          // Frames are usually 15-min but 3-hourly beyond 48h and sparse past each
+          // day's first frame (worker anchors at its run hour) — derive spacing from
+          // the actual frames, never assume FRAME_MINUTES. (end comes from the
+          // dayPartitions loop above; parts entries carry .index, not .i.)
+          const localSpan = end - start;
+          const stepMs = localSpan > 1
+            ? (frames[start + localSpan - 1].utcMs - firstMs) / (localSpan - 1)
+            : FRAME_MINUTES * 60000;
+          for (const item of [['Sunrise', sun.sunriseMs, '#f59e0b'], ['Sunset', sun.sunsetMs, '#f97316']]) {
+            const tMs = item[1];
+            if (tMs < firstMs || tMs > firstMs + (end - start) * stepMs) continue;
+            const x = Math.max(0, Math.min(w - 1, ((tMs - firstMs) / stepMs) * pxf));
+            // 1px tick above the temp row
+            const tick = document.createElement('div');
+            tick.style.position = 'absolute';
+            tick.style.top = '14px';
+            tick.style.left = `${x}px`;
+            tick.style.width = '1px';
+            tick.style.height = '6px';
+            tick.style.background = item[2];
+            tick.style.pointerEvents = 'none';
+            tick.title = `${item[0]} ${new Date(tMs).toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })}`;
+            block.appendChild(tick);
+            // 8px SVG sun glyph
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('viewBox', '0 0 8 8');
+            svg.setAttribute('aria-hidden', 'true');
+            svg.style.position = 'absolute';
+            svg.style.top = '8px';
+            svg.style.left = `${x - 3}px`;
+            svg.style.width = '8px';
+            svg.style.height = '8px';
+            svg.style.pointerEvents = 'none';
+            const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            c.setAttribute('cx', '4');
+            c.setAttribute('cy', '4');
+            c.setAttribute('r', '2.5');
+            c.setAttribute('fill', 'none');
+            c.setAttribute('stroke', item[2]);
+            c.setAttribute('stroke-width', '.7');
+            svg.appendChild(c);
+            block.appendChild(svg);
+          }
+        }
+      }
       trackDays.appendChild(block);
     }
   }
@@ -1241,15 +1304,16 @@ async function mount(deps) {
     return { idx: cur, pinIdx: pinned ? pinned.i : -1, W: canvas.width, H: canvas.height };
   }
 
-  async function frameFor(idx, gen) {
+  async function frameFor(idx, gen, blendFile, blendT) {
     if (!frames.length) return null;
     const frameEntry = frames[idx];
     if (!frameEntry) return null;
     const W = canvas.width, H = canvas.height;
     const pinIdx = pinned ? pinned.i : -1;
     const key = cacheKey(idx, pinIdx, W, H);
+    const maybeNb = (blendFile && blendT > 0 && blendT < 1) ? rawCache.get(blendFile) : null;
     const hit = frameCache.get(key);
-    if (hit) return hit;
+    if (hit && !maybeNb) return hit;
     const t0 = performance.now();
     let capped;
     try {
@@ -1259,6 +1323,11 @@ async function mount(deps) {
       showNote('wind unavailable — retry', () => showFrame(cur));
       return null;
     }
+    // Phase 6: temporal crossfade — blend toward the scrub neighbor BEFORE warping.
+    // Stats below stay computed from the TRUE frame; only the painted raster crossfades.
+    // Transient: blended results are returned but never cached.
+    const nb = (maybeNb && maybeNb.length === capped.length) ? maybeNb : null;
+    if (nb) capped = blendRasters(capped, nb, blendT);
     const raster = gatherRaster(capped, warp, W, H);
     const landFrac = landMaskRaster(warp, tables, W, H);
     const smooth = smoothRaster(raster, landFrac, W, H);
@@ -1277,6 +1346,11 @@ async function mount(deps) {
     const pinVals = pinned ? cellSteepness(frameEntry, pinned.i) : null;
     const entry = { url: null, stats, pinVals };
     frameCache.set(key, entry);
+    // Phase 6: temporal crossfade — blend toward neighbor when scrubbing and neighbor is cached
+    if (blendFile && typeof blendT === 'number' && blendT > 0 && blendT < 1) {
+      const nb = rawCache.get(blendFile);
+      if (nb) capped = blendRasters(capped, nb, blendT);
+    }
     const meta = { idx, pinIdx, W, H };
     let pending = null;
     if (offscreenSupported()) {
@@ -1361,9 +1435,22 @@ async function mount(deps) {
   async function showFrame(idx, gen) {
     if (!frames.length) return;
     const target = Math.max(0, Math.min(frames.length - 1, idx));
+    // Phase 6: temporal crossfade — compute blend params from continuous scrub position
+    let blendFile = null, blendT = 0;
+    if (scrubbing && scrubPos != null) {
+      const from = Math.floor(scrubPos);
+      const to = Math.min(frames.length - 1, from + 1);
+      if (from !== to) {
+        const f = scrubPos - from;
+        if (f > 0 && f < 1) {
+          if (target === from) { blendFile = frames[to].file; blendT = f; }
+          else if (target === to) { blendFile = frames[from].file; blendT = f; }
+        }
+      }
+    }
     const seq = ++showSeq;
     cur = target;
-    const built = await frameFor(target, gen);
+    const built = await frameFor(target, gen, blendFile, blendT);
     if (seq !== showSeq) return; // a newer showFrame superseded this one
     if (!built) return;
     const s = built.stats, e = s.entry;
@@ -1534,7 +1621,7 @@ async function mount(deps) {
     const ageH = Number.isFinite(fetched) ? (Date.now() - fetched) / 3600000 : NaN;
     let text = '—';
     if (Number.isFinite(ageH)) text = ageH < 1 ? 'just now' : `${Math.round(ageH)}h ago`;
-    dataAgeEl.textContent = `updated ${text} · ui v2.9`;
+    dataAgeEl.textContent = `updated ${text} · ui v2.10`;
     dataAgeEl.style.color = (Number.isFinite(ageH) && ageH > 3) ? '#ffb347' : '#d9e6f2';
     dataAgeEl.style.fontWeight = 700;
   }
@@ -1664,4 +1751,5 @@ module.exports = {
   pxPerDay, pxPerFrame, framesPerDay, framePx, tapeTranslate, idxFromDrag, dayPartitions,
   playStep, nextPlayIdx, pxPerMinute, minutesFromDrag, tapeTranslateMinutes, idxFromMinutes,
   tickWinds, sampleWindIndex, coarseIndexFor, chicagoLocalIso,
+  blendRasters,
 };
